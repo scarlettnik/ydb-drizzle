@@ -1,5 +1,10 @@
 import { sql } from "drizzle-orm";
-import { YdbDriver, drizzle } from "../src/index.js";
+import { integer, text, YdbDriver, drizzle, ydbTable } from "../src/index.js";
+
+const demoUsers = ydbTable("demo_users", {
+  id: integer("id").notNull(),
+  name: text("name").notNull(),
+});
 
 async function main() {
   const connectionString = process.env.YDB_CONNECTION_STRING ?? "grpc://localhost:2136/local";
@@ -9,9 +14,8 @@ async function main() {
   const db = drizzle(driver);
 
   try {
-    console.log(`[ydb] connected to ${connectionString}`);
+    console.log("[test]", connectionString);
 
-    // NOTE: DDL is intentionally raw here: schema/migrations support for YDB is out of scope for the initial adapter.
     await db.execute(sql.raw(`
       CREATE TABLE IF NOT EXISTS demo_users (
         id Int32,
@@ -21,23 +25,23 @@ async function main() {
     `));
 
     await db.transaction(async (tx) => {
-      await tx.execute(sql`INSERT INTO ${sql.identifier("demo_users")} (id, name) VALUES (${1}, ${"Alice"})`);
-      await tx.execute(sql`INSERT INTO ${sql.identifier("demo_users")} (id, name) VALUES (${2}, ${"Bob"})`);
-      await tx.execute(sql`UPDATE ${sql.identifier("demo_users")} SET name = ${"Alice Updated"} WHERE id = ${1}`);
+      await tx.insert(demoUsers).values({ id: 1, name: "Alice" });
+      await tx.insert(demoUsers).values({ id: 2, name: "Bob" });
+      await tx.update(demoUsers).set({ name: "Alice Updated" }).where(sql`${demoUsers.id} = ${1}`);
     });
 
-    const one = await db.execute(sql`SELECT id, name FROM ${sql.identifier("demo_users")} WHERE id = ${1}`);
-    console.log("row id=1:", one);
+    const one = await db.select().from(demoUsers).where(sql`${demoUsers.id} = ${1}`);
+    console.log("[one]", one);
 
-    await db.execute(sql`DELETE FROM ${sql.identifier("demo_users")} WHERE id = ${2}`);
-    const all = await db.execute(sql`SELECT id, name FROM ${sql.identifier("demo_users")}`);
-    console.log("all rows:", all);
+    await db.delete(demoUsers).where(sql`${demoUsers.id} = ${2}`);
+    const all = await db.select().from(demoUsers);
+    console.log("[all]", all);
   } finally {
     driver.close();
   }
 }
 
 main().catch((error) => {
-  console.error("[ydb] smoke test failed:", error);
+  console.error("[fail]", error);
   process.exitCode = 1;
 });

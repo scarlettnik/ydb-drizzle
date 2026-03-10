@@ -1,7 +1,11 @@
 import { Driver } from "@ydbjs/core";
 import { query, type QueryClient, type TX } from "@ydbjs/query";
 import { fromJs } from "@ydbjs/value";
-import type { PgTransactionConfig } from "drizzle-orm/pg-core/session";
+export interface YdbTransactionConfig {
+  accessMode?: "read only" | "read write";
+  isolationLevel?: "serializableReadWrite" | "snapshotReadOnly";
+  idempotent?: boolean;
+}
 
 export type YdbExecutionMethod = "all" | "execute";
 
@@ -23,7 +27,7 @@ export type YdbRemoteCallback = (
 
 export interface YdbExecutor {
   execute(sql: string, params: unknown[], method: YdbExecutionMethod, options?: YdbExecuteOptions): Promise<YdbQueryResult>;
-  transaction?<T>(callback: (tx: YdbExecutor) => Promise<T>, config?: PgTransactionConfig): Promise<T>;
+  transaction?<T>(callback: (tx: YdbExecutor) => Promise<T>, config?: YdbTransactionConfig): Promise<T>;
   ready?(signal?: AbortSignal): Promise<void>;
   close?(): Promise<void> | void;
 }
@@ -53,16 +57,20 @@ async function execQuery(
   return { rows: getRows(raw) };
 }
 
-function mapTransactionConfig(config?: PgTransactionConfig): { isolation?: "serializableReadWrite" | "snapshotReadOnly"; idempotent?: boolean } | undefined {
+function mapTransactionConfig(config?: YdbTransactionConfig): { isolation?: "serializableReadWrite" | "snapshotReadOnly"; idempotent?: boolean } | undefined {
   if (!config) {
     return undefined;
+  }
+
+  if (config.isolationLevel) {
+    return { isolation: config.isolationLevel, idempotent: config.idempotent };
   }
 
   if (config.accessMode === "read only") {
     return { isolation: "snapshotReadOnly", idempotent: true };
   }
 
-  return { isolation: "serializableReadWrite" };
+  return { isolation: "serializableReadWrite", idempotent: config.idempotent };
 }
 
 class YdbTxExecutor implements YdbExecutor {
@@ -72,7 +80,7 @@ class YdbTxExecutor implements YdbExecutor {
     return execQuery(this.tx, sql, params, options);
   }
 
-  async transaction<T>(_callback: (tx: YdbExecutor) => Promise<T>, _config?: PgTransactionConfig): Promise<T> {
+  async transaction<T>(_callback: (tx: YdbExecutor) => Promise<T>, _config?: YdbTransactionConfig): Promise<T> {
     throw new Error("Nested transactions are not supported by YDB");
   }
 }
@@ -112,7 +120,7 @@ export class YdbDriver implements YdbExecutor {
     return execQuery(this.client, sql, params, options);
   }
 
-  async transaction<T>(callback: (tx: YdbExecutor) => Promise<T>, config?: PgTransactionConfig): Promise<T> {
+  async transaction<T>(callback: (tx: YdbExecutor) => Promise<T>, config?: YdbTransactionConfig): Promise<T> {
     const options = mapTransactionConfig(config);
 
     if (options) {

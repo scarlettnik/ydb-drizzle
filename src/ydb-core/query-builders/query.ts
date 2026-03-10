@@ -1,0 +1,255 @@
+import { entityKind } from "drizzle-orm/entity";
+import {
+  getOperators,
+  getOrderByOperators,
+  type BuildQueryResult,
+  type DBQueryConfig,
+  type TableRelationalConfig,
+  type TablesRelationalConfig,
+} from "drizzle-orm/relations";
+import { QueryPromise } from "drizzle-orm/query-promise";
+import { sql, type SQL, type SQLWrapper } from "drizzle-orm/sql/sql";
+import type { KnownKeysOnly, ValueOrArray } from "drizzle-orm/utils";
+import { mapResultRow, orderSelectedFields } from "../result-mapping.js";
+import type { YdbPreparedQueryConfig, YdbSession } from "../session.js";
+import type { YdbTable } from "../table.js";
+import type { YdbColumn } from "../columns/common.js";
+
+function toArray<T>(value: ValueOrArray<T> | undefined): T[] {
+  if (value === undefined) {
+    return [];
+  }
+
+  return Array.isArray(value) ? value : [value];
+}
+
+function isNumberValue(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
+function getSelectedFields(
+  tableConfig: TableRelationalConfig,
+  config: DBQueryConfig<"many", true> | true,
+): Record<string, YdbColumn> {
+  const columns = tableConfig.columns as Record<string, YdbColumn>;
+
+  if (config === true || !config.columns) {
+    return columns;
+  }
+
+  const explicitTrueEntries = Object.entries(config.columns).filter(([, include]) => include === true);
+  if (explicitTrueEntries.length > 0) {
+    return Object.fromEntries(
+      explicitTrueEntries.flatMap(([key]) => (key in columns ? [[key, columns[key]!]] : [])),
+    );
+  }
+
+  return Object.fromEntries(
+    Object.entries(columns).filter(([key]) => config.columns?.[key] !== false),
+  );
+}
+
+function getWhereClause(
+  tableConfig: TableRelationalConfig,
+  config: DBQueryConfig<"many", true> | true,
+): SQL | undefined {
+  if (config === true || config.where === undefined) {
+    return undefined;
+  }
+
+  if (typeof config.where === "function") {
+    return config.where(tableConfig.columns as Record<string, YdbColumn>, getOperators());
+  }
+
+  return config.where;
+}
+
+function getOrderByClause(
+  tableConfig: TableRelationalConfig,
+  config: DBQueryConfig<"many", true> | true,
+): SQL[] {
+  if (config === true || config.orderBy === undefined) {
+    return [];
+  }
+
+  const orderBy = typeof config.orderBy === "function"
+    ? config.orderBy(tableConfig.columns as Record<string, YdbColumn>, getOrderByOperators())
+    : config.orderBy;
+
+  return toArray(orderBy).map((field) => sql`${field as SQLWrapper}`);
+}
+
+function getLimitClause(config: DBQueryConfig<"many", true> | true, mode: "many" | "first"): number | undefined {
+  if (mode === "first") {
+    return 1;
+  }
+
+  if (config === true || config.limit === undefined) {
+    return undefined;
+  }
+
+  if (!isNumberValue(config.limit)) {
+    throw new Error("YDB relational query limit placeholders are not supported yet");
+  }
+
+  return config.limit;
+}
+
+function getOffsetClause(config: DBQueryConfig<"many", true> | true): number | undefined {
+  if (config === true || config.offset === undefined) {
+    return undefined;
+  }
+
+  if (!isNumberValue(config.offset)) {
+    throw new Error("YDB relational query offset placeholders are not supported yet");
+  }
+
+  return config.offset;
+}
+
+export class YdbRelationalQueryBuilder<
+  TSchema extends TablesRelationalConfig,
+  TFields extends TableRelationalConfig,
+> {
+  static readonly [entityKind] = "YdbRelationalQueryBuilder";
+
+  constructor(
+    private readonly fullSchema: Record<string, unknown>,
+    private readonly schema: TSchema,
+    private readonly tableNamesMap: Record<string, string>,
+    private readonly table: YdbTable,
+    private readonly tableConfig: TFields,
+    private readonly session: YdbSession,
+  ) {}
+
+  findMany<TConfig extends DBQueryConfig<"many", true, TSchema, TFields>>(
+    config?: KnownKeysOnly<TConfig, DBQueryConfig<"many", true, TSchema, TFields>>,
+  ): YdbRelationalQuery<BuildQueryResult<TSchema, TFields, TConfig>[]> {
+    return new YdbRelationalQuery(
+      this.fullSchema,
+      this.schema,
+      this.tableNamesMap,
+      this.table,
+      this.tableConfig,
+      this.session,
+      config ? (config as DBQueryConfig<"many", true>) : true,
+      "many",
+    );
+  }
+
+  findFirst<TConfig extends Omit<DBQueryConfig<"many", true, TSchema, TFields>, "limit">>(
+    config?: KnownKeysOnly<TConfig, Omit<DBQueryConfig<"many", true, TSchema, TFields>, "limit">>,
+  ): YdbRelationalQuery<BuildQueryResult<TSchema, TFields, TConfig> | undefined> {
+    return new YdbRelationalQuery(
+      this.fullSchema,
+      this.schema,
+      this.tableNamesMap,
+      this.table,
+      this.tableConfig,
+      this.session,
+      config ? (config as DBQueryConfig<"many", true>) : true,
+      "first",
+    );
+  }
+}
+
+export class YdbRelationalQuery<TResult> extends QueryPromise<TResult> {
+  static override readonly [entityKind] = "YdbRelationalQuery";
+
+  declare readonly _: {
+    readonly dialect: "ydb";
+    readonly result: TResult;
+  };
+
+  constructor(
+    private readonly _fullSchema: Record<string, unknown>,
+    private readonly _schema: TablesRelationalConfig,
+    private readonly _tableNamesMap: Record<string, string>,
+    private readonly table: YdbTable,
+    private readonly tableConfig: TableRelationalConfig,
+    private readonly session: YdbSession,
+    private readonly config: DBQueryConfig<"many", true> | true,
+    private readonly mode: "many" | "first",
+  ) {
+    super();
+  }
+
+  private assertSupportedConfig(): void {
+    if (this.config === true) {
+      return;
+    }
+
+    if (this.config.with !== undefined) {
+      throw new Error("YDB relational query `with` is not supported yet");
+    }
+
+    if (this.config.extras !== undefined) {
+      throw new Error("YDB relational query `extras` is not supported yet");
+    }
+  }
+
+  private getSelectedFields(): Record<string, YdbColumn> {
+    const selectedFields = getSelectedFields(this.tableConfig, this.config);
+
+    if (Object.keys(selectedFields).length === 0) {
+      throw new Error("YDB relational query selected zero columns");
+    }
+
+    return selectedFields;
+  }
+
+  getSQL(): SQL {
+    this.assertSupportedConfig();
+
+    const selectedFields = this.getSelectedFields();
+    const selection = sql.join(
+      Object.values(selectedFields).map((field) => sql`${field}`),
+      sql`, `,
+    );
+    const whereClause = getWhereClause(this.tableConfig, this.config);
+    const orderBy = getOrderByClause(this.tableConfig, this.config);
+    const limit = getLimitClause(this.config, this.mode);
+    const offset = getOffsetClause(this.config);
+
+    const whereSql = whereClause ? sql` where ${whereClause}` : undefined;
+    const orderBySql = orderBy.length > 0 ? sql` order by ${sql.join(orderBy, sql`, `)}` : undefined;
+    const limitSql = limit !== undefined ? sql` limit ${limit}` : undefined;
+    const offsetSql = offset !== undefined ? sql` offset ${offset}` : undefined;
+
+    return sql`select ${selection} from ${this.table}${whereSql}${orderBySql}${limitSql}${offsetSql}`;
+  }
+
+  private getOrderedFields() {
+    return orderSelectedFields(this.getSelectedFields());
+  }
+
+  prepare(name?: string) {
+    this.assertSupportedConfig();
+
+    const orderedFields = this.getOrderedFields();
+    const customResultMapper = this.mode === "first"
+      ? (rows: unknown[][]) => {
+        const row = rows[0];
+        return (row ? mapResultRow(orderedFields, row) : undefined) as TResult;
+      }
+      : undefined;
+
+    return this.session.prepareQuery<YdbPreparedQueryConfig & { execute: TResult }>(
+      this.getSQL(),
+      orderedFields,
+      name,
+      true,
+      customResultMapper,
+    );
+  }
+
+  toSQL() {
+    const prepared = this.prepare();
+    const { typings: _typings, ...query } = prepared.getQuery();
+    return query;
+  }
+
+  override execute(): Promise<TResult> {
+    return this.prepare().execute() as Promise<TResult>;
+  }
+}
