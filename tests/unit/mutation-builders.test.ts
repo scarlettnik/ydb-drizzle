@@ -1,33 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { eq } from "drizzle-orm";
-import { integer, text, ydbTable } from "../src/index.js";
-import { YdbDialect } from "../src/ydb/dialect.js";
-import { YdbDeleteBuilder, YdbInsertBuilder, YdbSelectBuilder, YdbUpdateBuilder } from "../src/ydb-core/query-builders/index.js";
-
-const dialect = new YdbDialect();
-const session = {} as any;
-
-const users = ydbTable("users", {
-  id: integer("id").notNull(),
-  name: text("name").notNull(),
-  createdAt: integer("created_at").$defaultFn(() => 100),
-  updatedAt: integer("updated_at").$onUpdateFn(() => 200),
-});
+import { integer, text, ydbTable } from "../../src/index.js";
+import { YdbDeleteBuilder, YdbInsertBuilder, YdbUpdateBuilder } from "../../src/ydb-core/query-builders/index.js";
+import { dialect, session, users } from "../helpers/unit-basic.js";
 
 function toQuery(builder: { getSQL(): any }) {
   return dialect.sqlToQuery(builder.getSQL());
 }
-
-test("select sql", () => {
-  const query = toQuery(new YdbSelectBuilder(session).from(users).where(eq(users.id, 7)));
-
-  assert.equal(
-    query.sql,
-    "select `users`.`id`, `users`.`name`, `users`.`created_at`, `users`.`updated_at` from `users` where `users`.`id` = $p0",
-  );
-  assert.deepEqual(query.params, [7]);
-});
 
 test("delete sql", () => {
   const query = toQuery(new YdbDeleteBuilder(users, session).where(eq(users.id, 7)));

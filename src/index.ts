@@ -11,6 +11,24 @@ export {
 export { YdbSession } from "./ydb-core/session.js";
 export { YdbTransaction } from "./ydb-core/transaction.js";
 export { YdbDatabase } from "./ydb-core/db.js";
+export { union, unionAll, intersect, except } from "./ydb-core/query-builders/select.js";
+export { check } from "./ydb-core/checks.js";
+export { foreignKey, type YdbForeignKeyAction } from "./ydb-core/foreign-keys.js";
+export { index, uniqueIndex } from "./ydb-core/indexes.js";
+export { migrate, type YdbMigrateConfig, type YdbMigratorConfig } from "./ydb/migrator.js";
+export {
+  buildAddColumnsSql,
+  buildAddIndexSql,
+  buildCreateTableSql,
+  buildDropColumnsSql,
+  buildDropIndexSql,
+  buildDropTableSql,
+  buildMigrationSql,
+  type YdbInlineMigration,
+  type YdbMigrationOperation,
+} from "./ydb/migration-ddl.js";
+export { primaryKey } from "./ydb-core/primary-keys.js";
+export { unique } from "./ydb-core/unique-constraint.js";
 export {
   createDrizzle,
   drizzle,

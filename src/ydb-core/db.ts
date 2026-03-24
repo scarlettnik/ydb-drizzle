@@ -5,6 +5,7 @@ import type {
   TablesRelationalConfig,
 } from "drizzle-orm/relations";
 import type { DrizzleTypeError } from "drizzle-orm/utils";
+import type { SQLWrapper } from "drizzle-orm/sql/sql";
 import type { YdbTransactionConfig } from "../ydb/driver.js";
 import type { YdbDialect } from "../ydb/dialect.js";
 import type { YdbSession } from "./session.js";
@@ -103,7 +104,20 @@ export class YdbDatabase<
   }
 
   select<TFields extends Record<string, unknown> | undefined = undefined>(fields?: TFields) {
-    return new YdbSelectBuilder(this.session, fields as any);
+    return new YdbSelectBuilder(this.session, this.dialect, fields as any);
+  }
+
+  selectDistinct<TFields extends Record<string, unknown> | undefined = undefined>(fields?: TFields) {
+    return new YdbSelectBuilder(this.session, this.dialect, fields as any, { distinct: true });
+  }
+
+  selectDistinctOn<TFields extends Record<string, unknown> | undefined = undefined>(
+    on: SQLWrapper | SQLWrapper[],
+    fields?: TFields,
+  ) {
+    return new YdbSelectBuilder(this.session, this.dialect, fields as any, {
+      distinctOn: Array.isArray(on) ? on : [on],
+    });
   }
 
   insert(table: YdbTable) {

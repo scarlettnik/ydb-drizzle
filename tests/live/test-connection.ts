@@ -1,5 +1,8 @@
 import { sql } from "drizzle-orm";
-import { integer, text, YdbDriver, drizzle, ydbTable } from "../src/index.js";
+import { integer, text, YdbDriver, drizzle, ydbTable } from "../../src/index.js";
+import { loadTestEnv } from "../helpers/load-env.js";
+
+loadTestEnv();
 
 const demoUsers = ydbTable("demo_users", {
   id: integer("id").notNull(),

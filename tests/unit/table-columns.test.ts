@@ -2,9 +2,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { getTableName, Table } from "drizzle-orm/table";
 import { sql } from "drizzle-orm";
-import { customType, integer, text, uuid, ydbTable, ydbTableCreator } from "../src/index.js";
-import { getYdbColumnBuilders, ydbColumnBuilders } from "../src/ydb-core/columns/all.js";
-import { YdbColumn } from "../src/ydb-core/columns/common.js";
+import { customType, integer, text, uuid, ydbTable, ydbTableCreator } from "../../src/index.js";
+import { getYdbColumnBuilders, ydbColumnBuilders } from "../../src/ydb-core/columns/all.js";
+import { YdbColumn } from "../../src/ydb-core/columns/common.js";
 
 const typedTable = ydbTable("typed_table", {
   payload: text("payload").$type<{ pony: string }>(),

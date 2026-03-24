@@ -7,9 +7,13 @@
   "type": "module",
   "main": "index.js",
   "scripts": {
-    "test": "node --import tsx --test tests/adapter.test.ts",
-    "test:all": "node --import tsx --test tests/*.test.ts",
-    "test:smoke": "node --import tsx tests/test-connection.ts",
+    "test": "node --import tsx --test tests/live/*.test.ts",
+    "test:live": "node --import tsx --test tests/live/*.test.ts",
+    "test:unit": "node --import tsx --test tests/unit/*.test.ts",
+    "test:migrations": "node --import tsx --test tests/unit/migration*.test.ts tests/live/migrations.test.ts",
+    "test:query-builders": "node --import tsx --test tests/unit/select-builder*.test.ts tests/unit/query-builder-utils.test.ts tests/unit/mutation-builders.test.ts tests/unit/builder-contract.test.ts tests/unit/relational-query.test.ts tests/live/select-features.test.ts",
+    "test:all": "node --import tsx --test tests/unit/*.test.ts tests/live/*.test.ts",
+    "test:smoke": "node --import tsx tests/live/test-connection.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

@@ -1,0 +1,117 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { eq, sql } from "drizzle-orm";
+import { drizzle, YdbDriver } from "../../src/index.js";
+import { createLiveContext } from "./helpers/context.js";
+import { liveSchema, users, usersTableName } from "./helpers/schema.js";
+
+const live = createLiveContext();
+
+test("createDrizzle inputs", async (t) => {
+  if (!live.requireLiveYdb(t)) return;
+  live.describeDbChange(t, "no persistent data change; verifies that connection-string and callback inputs execute against the same live database");
+  const connectionDb = drizzle({ connectionString: process.env.YDB_CONNECTION_STRING ?? "grpc://localhost:2136/local", schema: liveSchema });
+  const callbackCalls: Array<{ query: string; method: string; params: unknown[] }> = [];
+  const callbackDb = drizzle(async (query, params, method, options) => {
+    callbackCalls.push({ query, method, params: [...params] });
+    return live.db.$client.execute(query, params, method, options);
+  }, { schema: liveSchema });
+
+  try {
+    await (connectionDb.$client as YdbDriver).ready?.();
+
+    const connectionRows = await connectionDb.execute<Array<{ value: number }>>(
+      sql`select ${1} as ${sql.identifier("value")}`,
+    );
+    const callbackRows = await callbackDb.execute<Array<{ value: number }>>(
+      sql`select ${2} as ${sql.identifier("value")}`,
+    );
+
+    assert.deepEqual(connectionRows, [{ value: 1 }]);
+    assert.deepEqual(callbackRows, [{ value: 2 }]);
+    assert.equal(callbackCalls.length, 1);
+    assert.equal(callbackCalls[0]?.method, "execute");
+    assert.equal(callbackCalls[0]?.query, "select $p0 as `value`");
+  } finally {
+    (connectionDb.$client as YdbDriver).close();
+  }
+});
+
+test("builder CRUD", async (t) => {
+  if (!live.requireLiveYdb(t)) return;
+  live.describeDbChange(t, "insert two users, update one, delete one, then leave the table clean again");
+  const firstId = live.baseIntId + 101;
+  const secondId = live.baseIntId + 102;
+
+  live.log("crud", firstId, secondId);
+  await live.deleteUserRows([firstId, secondId]);
+
+  try {
+    await live.db.insert(users).values([{ id: firstId, name: "rarity" }, { id: secondId, name: "applejack" }]);
+
+    const inserted = live.sortById(
+      (await live.db.select().from(users).where(sql`${users.id} IN (${firstId}, ${secondId})`)) as Array<{
+        id: number;
+        name: string;
+      }>,
+    );
+
+    assert.deepEqual(inserted, [
+      { id: firstId, name: "rarity" },
+      { id: secondId, name: "applejack" },
+    ]);
+
+    await live.db.update(users).set({ name: "rarity updated" }).where(eq(users.id, firstId));
+    await live.db.delete(users).where(eq(users.id, secondId));
+
+    const remaining = (await live.db.select().from(users).where(sql`${users.id} IN (${firstId}, ${secondId})`)) as Array<{
+      id: number;
+      name: string;
+    }>;
+
+    assert.deepEqual(remaining, [{ id: firstId, name: "rarity updated" }]);
+  } finally {
+    await live.deleteUserRows([firstId, secondId]);
+  }
+});
+
+test("db helpers", async (t) => {
+  if (!live.requireLiveYdb(t)) return;
+  live.describeDbChange(t, "insert one user, read it through execute/all/get/values helpers, then delete it and confirm helper-layer logging");
+  const id = live.baseIntId + 151;
+
+  live.liveQueryLog.length = 0;
+  live.log("helpers", id);
+  await live.deleteUserRows([id]);
+
+  try {
+    await live.db.execute(live.db.insert(users).values({ id, name: "sunset shimmer" }));
+
+    const selectQuery = live.db.select().from(users).where(eq(users.id, id));
+    const selectedRows = await selectQuery.prepare("select_user_prepared").execute() as Array<{
+      id: number;
+      name: string;
+    }>;
+    const executeRows = await live.db.execute<Array<{ id: number; name: string }>>(selectQuery);
+    const allRows = await live.db.all<{ id: number; name: string }>(selectQuery);
+    const oneRow = await live.db.get<{ id: number; name: string }>(selectQuery);
+    const valueRows = await live.db.values<[number, string]>(selectQuery);
+
+    assert.deepEqual(selectedRows, [{ id, name: "sunset shimmer" }]);
+    assert.deepEqual(executeRows, [{ id, name: "sunset shimmer" }]);
+    assert.deepEqual(allRows, [{ id, name: "sunset shimmer" }]);
+    assert.deepEqual(oneRow, { id, name: "sunset shimmer" });
+    assert.deepEqual(valueRows, [[id, "sunset shimmer"]]);
+
+    await live.db.execute(live.db.update(users).set({ name: "sunset updated" }).where(eq(users.id, id)));
+    await live.db.execute(live.db.delete(users).where(eq(users.id, id)));
+
+    const remainingRows = await live.db.select().from(users).where(eq(users.id, id));
+    assert.deepEqual(remainingRows, []);
+    assert.ok(live.liveQueryLog.some(({ query }) => query.includes(`insert into \`${usersTableName}\``)));
+    assert.ok(live.liveQueryLog.some(({ query }) => query.includes("update")));
+    assert.ok(live.liveQueryLog.some(({ query }) => query.includes("delete from")));
+  } finally {
+    await live.deleteUserRows([id]);
+  }
+});

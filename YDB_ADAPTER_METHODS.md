@@ -21,8 +21,8 @@
 - [x] YdbTxExecutor.execute(...)
 - [x] YdbTxExecutor.transaction(...) throws for nested transactions
 - [x] mapTransactionConfig(...)
-- [~] result shape is reduced to { rows }; command metadata is lost
-- [~] typings option is accepted but unused
+- [ ] result shape is reduced to { rows }; command metadata is lost
+- [ ] typings option is accepted but unused
 - [ ] richer result mapping for execute/all/get/values
 - [ ] replica / read-write split support
 - [ ] mock driver helper
@@ -37,16 +37,16 @@
 - [ ] prepareTyping()
 - [x] sqlToQuery(sql, invokeSource?)
 - [ ] buildWithCTE(queries)
-- [ ] buildSelection(fields, options?)
-- [ ] buildFromTable(table)
-- [ ] buildJoins(joins)
-- [ ] buildSelectQuery(config)
+- [x] buildSelection(fields, options?)
+- [x] buildFromTable(table)
+- [x] buildJoins(joins)
+- [x] buildSelectQuery(config)
 - [ ] buildInsertQuery(config)
 - [ ] buildUpdateSet(table, set)
 - [ ] buildUpdateQuery(config)
 - [ ] buildDeleteQuery(config)
-- [ ] buildSetOperations(leftSelect, setOperators)
-- [ ] buildSetOperationQuery(config)
+- [x] buildSetOperations(leftSelect, setOperators)
+- [x] buildSetOperationQuery(config) //native UNION/UNION ALL + adapter-side INTERSECT/EXCEPT emulation
 - [ ] buildRefreshMaterializedViewQuery(config)
 - [ ] buildRelationalQueryWithoutPK(config)
 - [ ] migrate(...)
@@ -86,11 +86,11 @@
 - [x] insert(table)
 - [x] update(table)
 - [x] delete(table)
-- [x] transaction(callback, config?)
+- [ ] transaction(callback, config?) //НЕВЕРНАЯ ИНТЕГРАЦИЯ
 - [ ] $with(alias).as(...)
 - [ ] with(...ctes)
-- [ ] selectDistinct(fields?)
-- [ ] selectDistinctOn(on, fields?)
+- [x] selectDistinct(fields?)
+- [x] selectDistinctOn(on, fields?)
 - [ ] $count(source, filters?)
 - [x] query.<table>.findMany(...) for flat single-table schema-aware queries
 - [x] query.<table>.findFirst(...) for flat single-table schema-aware queries
@@ -118,20 +118,20 @@
 - [x] whole-table selects now apply column `mapFromDriverValue()` decoders to result rows
 - [x] toSQL()
 - [x] prepare(name?)
-- [ ] orderBy(...)
-- [ ] groupBy(...)
-- [ ] having(...)
-- [ ] limit(n)
-- [ ] offset(n)
-- [ ] distinct()
-- [ ] distinctOn(...)
-- [ ] innerJoin(...)
-- [ ] leftJoin(...)
-- [ ] rightJoin(...)
-- [ ] fullJoin(...)
-- [ ] crossJoin(...)
-- [?] locking clauses
-- [ ] set operators: union, unionAll, intersect, except
+- [x] orderBy(...)
+- [x] groupBy(...)
+- [x] having(...)
+- [x] limit(n)
+- [x] offset(n)
+- [x] distinct()
+- [x] distinctOn(...) //adapter-side emulation via row_number() window query
+- [x] innerJoin(...)
+- [x] leftJoin(...)
+- [x] rightJoin(...)
+- [x] fullJoin(...)
+- [x] crossJoin(...)
+- [~] locking clauses now fail fast with an explicit "not supported by YDB" error
+- [x] set operators: union, unionAll, intersect, except //INTERSECT/EXCEPT are emulated in SQL
 
 **Insert: src/ydb-core/query-builders/insert.ts**
 - [x] constructor(table, session)
@@ -228,12 +228,12 @@
 - [x] generic customType(...) for unsupported native types and custom codecs
 
 **Constraints / indexes**
-- [ ] index(...)
-- [ ] uniqueIndex(...)
-- [ ] primaryKey(...)
-- [ ] unique(...)
-- [ ] foreignKey(...)
-- [ ] check(...)
+- [x] index(...)
+- [x] uniqueIndex(...)
+- [x] primaryKey(...)
+- [x] unique(...)
+- [?] foreignKey(...) - metadata API exists; YDB DDL generation rejects it explicitly because YDB has no FOREIGN KEY support
+- [?] check(...) - metadata API exists; YDB DDL generation rejects it explicitly because YDB has no CHECK support
 
 ### 8. Relations And Schema-Aware API
 
@@ -248,8 +248,8 @@
 
 ### 9. Migrations
 
-- [ ] migrate(...)
-- [ ] migration table bootstrap / bookkeeping
-- [ ] SQL generation for table create/alter/drop
-- [ ] index / constraint DDL generation
-- [ ] integration contract with drizzle-kit or explicit adapter-side migrator
+- [x] migrate(...)
+- [x] migration table bootstrap / bookkeeping
+- [x] SQL generation for table create/alter/drop
+- [x] index / constraint DDL generation
+- [x] integration contract with drizzle-kit or explicit adapter-side migrator

@@ -2,8 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { TransactionRollbackError } from "drizzle-orm/errors";
 import { sql } from "drizzle-orm";
-import { drizzle, integer, text, YdbDialect, YdbSession, ydbTable } from "../src/index.js";
-import { orderSelectedFields } from "../src/ydb-core/result-mapping.js";
+import { drizzle, integer, text, YdbDialect, YdbSession, ydbTable } from "../../src/index.js";
+import { orderSelectedFields } from "../../src/ydb-core/result-mapping.js";
 
 const dialect = new YdbDialect();
 const users = ydbTable("users", {

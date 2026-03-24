@@ -1,67 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { Driver } from "@ydbjs/core";
-import { sql } from "drizzle-orm";
-import { YdbDialect, YdbDriver } from "../src/index.js";
-
-type MockQueryCall = {
-  text: string;
-  params: Array<{ name: string; value: unknown }>;
-  valuesRows: unknown[];
-  executeRows: unknown[];
-};
-
-function createMockQueryFunction(executeRows: unknown[], valuesRows = executeRows) {
-  const calls: MockQueryCall[] = [];
-
-  const ql = ((text: string) => {
-    const call: MockQueryCall = {
-      text,
-      params: [],
-      executeRows,
-      valuesRows,
-    };
-    calls.push(call);
-
-    const queryObject: {
-      parameter(name: string, value: unknown): typeof queryObject;
-      values(): Promise<unknown[][]>;
-      then<TResult1 = unknown[][], TResult2 = never>(
-        onfulfilled?: ((value: unknown[][]) => TResult1 | PromiseLike<TResult1>) | null,
-        onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null,
-      ): Promise<TResult1 | TResult2>;
-    } = {
-      parameter(name: string, value: unknown) {
-        call.params.push({ name, value });
-        return queryObject;
-      },
-      async values() {
-        return [call.valuesRows as unknown[]];
-      },
-      then(onfulfilled, onrejected) {
-        return Promise.resolve([call.executeRows as unknown[]]).then(onfulfilled, onrejected);
-      },
-    };
-
-    return queryObject;
-  }) as any;
-
-  return { ql, calls };
-}
-
-test("dialect", () => {
-  const dialect = new YdbDialect({ casing: "snake_case" });
-
-  assert.equal(dialect.escapeName("pony`name"), "`pony``name`");
-  assert.equal(dialect.escapeParam(7), "$p7");
-  assert.equal(dialect.escapeString("Pinkie's pie"), "'Pinkie''s pie'");
-  assert.equal(dialect.prepareTyping(), "none");
-
-  const query = dialect.sqlToQuery(sql`select ${123} as ${sql.identifier("pony_id")}`);
-  assert.equal(query.sql, "select $p0 as `pony_id`");
-  assert.deepEqual(query.params, [123]);
-  assert.deepEqual(query.typings, ["none"]);
-});
+import { YdbDriver } from "../../src/index.js";
+import { createMockQueryFunction } from "../helpers/mock-driver.js";
 
 test("borrowed driver", async () => {
   let readyCalls = 0;

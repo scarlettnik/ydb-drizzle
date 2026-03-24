@@ -21,11 +21,11 @@ import {
   uuid,
   ydbTable,
   yson,
-} from "../src/index.js";
-import { YdbDialect } from "../src/index.js";
-import { YdbInsertBuilder } from "../src/ydb-core/query-builders/index.js";
-import { YdbSelectBuilder } from "../src/ydb-core/query-builders/index.js";
-import { YdbSession } from "../src/index.js";
+} from "../../src/index.js";
+import { YdbDialect } from "../../src/index.js";
+import { YdbInsertBuilder } from "../../src/ydb-core/query-builders/index.js";
+import { YdbSelectBuilder } from "../../src/ydb-core/query-builders/index.js";
+import { YdbSession } from "../../src/index.js";
 import {
   Bool,
   Date as YdbDate,
