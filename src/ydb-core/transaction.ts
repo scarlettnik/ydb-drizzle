@@ -3,16 +3,27 @@ import type { RelationalSchemaConfig, TablesRelationalConfig } from "drizzle-orm
 import type { YdbTransactionConfig } from "../ydb/driver.js";
 import type { YdbDialect } from "../ydb/dialect.js";
 import type { YdbSession } from "./session.js";
+import type {
+  YdbSchemaDefinition,
+  YdbSchemaRelations,
+  YdbSchemaWithoutTables,
+} from "./schema.types.js";
 import { YdbDatabase } from "./db.js";
 
+/**
+ * Transaction-scoped database wrapper.
+ *
+ * @typeParam TSchemaDefinition - Raw schema object passed to `drizzle({ schema })`.
+ * @typeParam TSchemaRelations - Relational metadata extracted from `TSchemaDefinition`.
+ */
 export class YdbTransaction<
-  TFullSchema extends Record<string, unknown> = Record<string, never>,
-  TSchema extends TablesRelationalConfig = TablesRelationalConfig,
-> extends YdbDatabase<TFullSchema, TSchema> {
+  TSchemaDefinition extends YdbSchemaDefinition = YdbSchemaWithoutTables,
+  TSchemaRelations extends TablesRelationalConfig = YdbSchemaRelations<TSchemaDefinition>,
+> extends YdbDatabase<TSchemaDefinition, TSchemaRelations> {
   constructor(
     dialect: YdbDialect,
     session: YdbSession,
-    schema?: RelationalSchemaConfig<TSchema>,
+    schema?: RelationalSchemaConfig<TSchemaRelations>,
   ) {
     super(dialect, session, schema);
   }
@@ -22,7 +33,7 @@ export class YdbTransaction<
   }
 
   override async transaction<T>(
-    _transaction: (tx: YdbTransaction<TFullSchema, TSchema>) => Promise<T>,
+    _transaction: (tx: YdbTransaction<TSchemaDefinition, TSchemaRelations>) => Promise<T>,
     _config?: YdbTransactionConfig,
   ): Promise<T> {
     throw new Error("Nested transactions are not supported by YDB");

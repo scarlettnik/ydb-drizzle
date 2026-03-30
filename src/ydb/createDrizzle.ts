@@ -1,34 +1,55 @@
 import { DefaultLogger, type Logger } from "drizzle-orm/logger";
-import { createTableRelationsHelpers, extractTablesRelationalConfig, type ExtractTablesWithRelations } from "drizzle-orm/relations";
+import { createTableRelationsHelpers, extractTablesRelationalConfig } from "drizzle-orm/relations";
 import type { Casing } from "drizzle-orm/utils";
 import { YdbDialect } from "./dialect.js";
 import { YdbDriver, type YdbExecutor, type YdbRemoteCallback } from "./driver.js";
+import type {
+  YdbSchemaDefinition,
+  YdbSchemaRelations,
+  YdbSchemaWithoutTables,
+} from "../ydb-core/schema.types.js";
 import { YdbSession } from "../ydb-core/session.js";
 import { YdbDatabase } from "../ydb-core/db.js";
 
-export interface YdbDrizzleConfig<TFullSchema extends Record<string, unknown> = Record<string, never>> {
+/**
+ * Shared configuration for `createDrizzle()` / `drizzle()`.
+ *
+ * @typeParam TSchemaDefinition - User schema object passed via `schema`, for example `{ users, posts }`.
+ */
+export interface YdbDrizzleConfig<TSchemaDefinition extends YdbSchemaDefinition = YdbSchemaWithoutTables> {
   casing?: Casing;
   logger?: boolean | Logger;
-  schema?: TFullSchema;
+  /** Exact schema object that powers typed queries like `db.query.users.findMany()`. */
+  schema?: TSchemaDefinition;
 }
 
-export interface YdbDrizzleOptions<TFullSchema extends Record<string, unknown> = Record<string, never>>
-  extends YdbDrizzleConfig<TFullSchema> {
+/**
+ * Connection-oriented overload input for `createDrizzle()`.
+ *
+ * @typeParam TSchemaDefinition - User schema object passed via `schema`, for example `{ users, posts }`.
+ */
+export interface YdbDrizzleOptions<TSchemaDefinition extends YdbSchemaDefinition = YdbSchemaWithoutTables>
+  extends YdbDrizzleConfig<TSchemaDefinition> {
   connectionString?: string;
   client?: YdbExecutor;
 }
 
-export type YdbDrizzleDatabase<TFullSchema extends Record<string, unknown> = Record<string, never>> =
-  YdbDatabase<TFullSchema, ExtractTablesWithRelations<TFullSchema>> & { $client: YdbExecutor };
+/**
+ * Concrete database instance returned by `createDrizzle()` / `drizzle()`.
+ *
+ * @typeParam TSchemaDefinition - User schema object passed via `schema`, for example `{ users, posts }`.
+ */
+export type YdbDrizzleDatabase<TSchemaDefinition extends YdbSchemaDefinition = YdbSchemaWithoutTables> =
+  YdbDatabase<TSchemaDefinition, YdbSchemaRelations<TSchemaDefinition>> & { $client: YdbExecutor };
 
 function isYdbExecutor(value: unknown): value is YdbExecutor {
   return !!value && typeof value === "object" && typeof (value as YdbExecutor).execute === "function";
 }
 
-function makeDb<TFullSchema extends Record<string, unknown>>(
+function makeDb<TSchemaDefinition extends YdbSchemaDefinition>(
   executor: YdbExecutor,
-  config: YdbDrizzleConfig<TFullSchema> = {},
-): YdbDrizzleDatabase<TFullSchema> {
+  config: YdbDrizzleConfig<TSchemaDefinition> = {},
+): YdbDrizzleDatabase<TSchemaDefinition> {
   const dialect = new YdbDialect({ casing: config.casing });
 
   let logger: Logger | undefined = undefined;
@@ -47,21 +68,21 @@ function makeDb<TFullSchema extends Record<string, unknown>>(
 
       return {
         fullSchema: config.schema,
-        schema: tablesConfig.tables as ExtractTablesWithRelations<TFullSchema>,
+        schema: tablesConfig.tables as YdbSchemaRelations<TSchemaDefinition>,
         tableNamesMap: tablesConfig.tableNamesMap,
       };
     })()
     : undefined;
 
   const session = new YdbSession(executor, dialect, { logger });
-  const db = new YdbDatabase<TFullSchema>(dialect, session, schema) as YdbDrizzleDatabase<TFullSchema>;
+  const db = new YdbDatabase<TSchemaDefinition>(dialect, session, schema) as YdbDrizzleDatabase<TSchemaDefinition>;
   db.$client = executor;
   return db;
 }
 
-function isYdbOptions<TFullSchema extends Record<string, unknown>>(
+function isYdbOptions<TSchemaDefinition extends YdbSchemaDefinition>(
   value: unknown,
-): value is YdbDrizzleOptions<TFullSchema> {
+): value is YdbDrizzleOptions<TSchemaDefinition> {
   if (!value || typeof value !== "object") {
     return false;
   }
@@ -73,24 +94,29 @@ function isYdbOptions<TFullSchema extends Record<string, unknown>>(
   return "connectionString" in value || "client" in value || "schema" in value;
 }
 
-export function createDrizzle<TFullSchema extends Record<string, unknown>>(
+/**
+ * Creates a YDB-backed Drizzle database instance from an executor, callback, or connection options.
+ *
+ * @typeParam TSchemaDefinition - User schema object passed via `schema`, for example `{ users, posts }`.
+ */
+export function createDrizzle<TSchemaDefinition extends YdbSchemaDefinition>(
   input: YdbExecutor | YdbRemoteCallback,
-  config: YdbDrizzleConfig<TFullSchema> & { schema: TFullSchema },
-): YdbDrizzleDatabase<TFullSchema>;
+  config: YdbDrizzleConfig<TSchemaDefinition> & { schema: TSchemaDefinition },
+): YdbDrizzleDatabase<TSchemaDefinition>;
 export function createDrizzle(
   input: YdbExecutor | YdbRemoteCallback,
-  config?: YdbDrizzleConfig<Record<string, never>>,
-): YdbDrizzleDatabase<Record<string, never>>;
-export function createDrizzle<TFullSchema extends Record<string, unknown>>(
-  input: YdbDrizzleOptions<TFullSchema> & { schema: TFullSchema },
-): YdbDrizzleDatabase<TFullSchema>;
+  config?: YdbDrizzleConfig<YdbSchemaWithoutTables>,
+): YdbDrizzleDatabase<YdbSchemaWithoutTables>;
+export function createDrizzle<TSchemaDefinition extends YdbSchemaDefinition>(
+  input: YdbDrizzleOptions<TSchemaDefinition> & { schema: TSchemaDefinition },
+): YdbDrizzleDatabase<TSchemaDefinition>;
 export function createDrizzle(
-  input: YdbDrizzleOptions<Record<string, never>>,
-): YdbDrizzleDatabase<Record<string, never>>;
-export function createDrizzle<TFullSchema extends Record<string, unknown> = Record<string, never>>(
-  input: YdbExecutor | YdbRemoteCallback | YdbDrizzleOptions<TFullSchema>,
-  config?: YdbDrizzleConfig<TFullSchema>,
-): YdbDrizzleDatabase<TFullSchema> {
+  input: YdbDrizzleOptions<YdbSchemaWithoutTables>,
+): YdbDrizzleDatabase<YdbSchemaWithoutTables>;
+export function createDrizzle<TSchemaDefinition extends YdbSchemaDefinition = YdbSchemaWithoutTables>(
+  input: YdbExecutor | YdbRemoteCallback | YdbDrizzleOptions<TSchemaDefinition>,
+  config?: YdbDrizzleConfig<TSchemaDefinition>,
+): YdbDrizzleDatabase<TSchemaDefinition> {
   if (typeof input === "function") {
     return makeDb(YdbDriver.fromCallback(input), config);
   }
@@ -99,7 +125,7 @@ export function createDrizzle<TFullSchema extends Record<string, unknown> = Reco
     return makeDb(input, config);
   }
 
-  if (isYdbOptions<TFullSchema>(input)) {
+  if (isYdbOptions<TSchemaDefinition>(input)) {
     if (input.client) {
       return makeDb(input.client, input);
     }

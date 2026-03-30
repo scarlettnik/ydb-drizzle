@@ -21,11 +21,9 @@
 - [x] YdbTxExecutor.execute(...)
 - [x] YdbTxExecutor.transaction(...) throws for nested transactions
 - [x] mapTransactionConfig(...)
-- [ ] result shape is reduced to { rows }; command metadata is lost
-- [ ] typings option is accepted but unused
-- [ ] richer result mapping for execute/all/get/values
+- [x] result shape now preserves `rowCount`, `command` and `meta`
 - [ ] replica / read-write split support
-- [ ] mock driver helper
+- [x] mock driver helper
 
 ### 2. Dialect
 
@@ -34,22 +32,22 @@
 - [x] escapeName(name)
 - [x] escapeParam(num)
 - [x] escapeString(str)
-- [ ] prepareTyping()
+- [x] prepareTyping()
 - [x] sqlToQuery(sql, invokeSource?)
-- [ ] buildWithCTE(queries)
+- [x] buildWithCTE(queries)
 - [x] buildSelection(fields, options?)
 - [x] buildFromTable(table)
 - [x] buildJoins(joins)
 - [x] buildSelectQuery(config)
-- [ ] buildInsertQuery(config)
-- [ ] buildUpdateSet(table, set)
-- [ ] buildUpdateQuery(config)
-- [ ] buildDeleteQuery(config)
+- [x] buildInsertQuery(config)
+- [x] buildUpdateSet(table, set)
+- [x] buildUpdateQuery(config)
+- [x] buildDeleteQuery(config)
 - [x] buildSetOperations(leftSelect, setOperators)
 - [x] buildSetOperationQuery(config) //native UNION/UNION ALL + adapter-side INTERSECT/EXCEPT emulation
-- [ ] buildRefreshMaterializedViewQuery(config)
-- [ ] buildRelationalQueryWithoutPK(config)
-- [ ] migrate(...)
+- [x] buildRefreshMaterializedViewQuery(config) //fail-fast "not supported by YDB"
+- [x] buildRelationalQueryWithoutPK(config) //flat single-table relational SQL
+- [x] migrate(...)
 
 ### 3. Session And Prepared Queries
 
@@ -130,7 +128,6 @@
 - [x] rightJoin(...)
 - [x] fullJoin(...)
 - [x] crossJoin(...)
-- [~] locking clauses now fail fast with an explicit "not supported by YDB" error
 - [x] set operators: union, unionAll, intersect, except //INTERSECT/EXCEPT are emulated in SQL
 
 **Insert: src/ydb-core/query-builders/insert.ts**
@@ -225,15 +222,15 @@
 - [x] jsonDocument()
 - [x] uuid()
 - [x] yson()
-- [x] generic customType(...) for unsupported native types and custom codecs
+- [x] generic customType(...)
 
 **Constraints / indexes**
 - [x] index(...)
 - [x] uniqueIndex(...)
 - [x] primaryKey(...)
 - [x] unique(...)
-- [?] foreignKey(...) - metadata API exists; YDB DDL generation rejects it explicitly because YDB has no FOREIGN KEY support
-- [?] check(...) - metadata API exists; YDB DDL generation rejects it explicitly because YDB has no CHECK support
+- [?] foreignKey(...) - YDB DDL generation rejects it explicitly because YDB has no FOREIGN KEY support
+- [?] check(...) - YDB DDL generation rejects it explicitly because YDB has no CHECK support
 
 ### 8. Relations And Schema-Aware API
 

@@ -8,6 +8,11 @@ import type { YdbDialect } from "../ydb/dialect.js";
 import type { YdbExecutor, YdbExecuteOptions } from "../ydb/driver.js";
 import type { YdbTransactionConfig } from "../ydb/driver.js";
 import { mapResultRow, type YdbSelectedFieldsOrdered } from "./result-mapping.js";
+import type {
+  YdbSchemaDefinition,
+  YdbSchemaRelations,
+  YdbSchemaWithoutTables,
+} from "./schema.types.js";
 import { YdbTransaction } from "./transaction.js";
 
 export interface YdbPreparedQueryConfig {
@@ -215,27 +220,33 @@ export class YdbSession {
     return Number(value ?? 0);
   }
 
+  /**
+   * Runs a callback inside a YDB transaction.
+   *
+   * @typeParam TSchemaDefinition - Raw schema object passed to `drizzle({ schema })`.
+   * @typeParam TSchemaRelations - Relational metadata extracted from `TSchemaDefinition`.
+   */
   async transaction<T>(
     transaction: (tx: YdbTransaction) => Promise<T>,
     config?: YdbTransactionConfig,
   ): Promise<T>;
   async transaction<
     T,
-    TFullSchema extends Record<string, unknown> = Record<string, never>,
-    TSchema extends TablesRelationalConfig = TablesRelationalConfig,
+    TSchemaDefinition extends YdbSchemaDefinition = YdbSchemaWithoutTables,
+    TSchemaRelations extends TablesRelationalConfig = YdbSchemaRelations<TSchemaDefinition>,
   >(
-    transaction: (tx: YdbTransaction<TFullSchema, TSchema>) => Promise<T>,
+    transaction: (tx: YdbTransaction<TSchemaDefinition, TSchemaRelations>) => Promise<T>,
     config: YdbTransactionConfig | undefined,
-    schema: RelationalSchemaConfig<TSchema> | undefined,
+    schema: RelationalSchemaConfig<TSchemaRelations> | undefined,
   ): Promise<T>;
   async transaction<
     T,
-    TFullSchema extends Record<string, unknown> = Record<string, never>,
-    TSchema extends TablesRelationalConfig = TablesRelationalConfig,
+    TSchemaDefinition extends YdbSchemaDefinition = YdbSchemaWithoutTables,
+    TSchemaRelations extends TablesRelationalConfig = YdbSchemaRelations<TSchemaDefinition>,
   >(
-    transaction: (tx: YdbTransaction<TFullSchema, TSchema>) => Promise<T>,
+    transaction: (tx: YdbTransaction<TSchemaDefinition, TSchemaRelations>) => Promise<T>,
     config?: YdbTransactionConfig,
-    schema?: RelationalSchemaConfig<TSchema>,
+    schema?: RelationalSchemaConfig<TSchemaRelations>,
   ): Promise<T> {
     if (!this.client.transaction) {
       throw new Error("Transactions are not supported");
@@ -244,7 +255,7 @@ export class YdbSession {
     try {
       return await this.client.transaction(async (txClient) => {
         const session = new YdbSession(txClient, this.dialect, { logger: this.logger });
-        const tx = new YdbTransaction<TFullSchema, TSchema>(this.dialect, session, schema);
+        const tx = new YdbTransaction<TSchemaDefinition, TSchemaRelations>(this.dialect, session, schema);
         return transaction(tx);
       }, config);
     } catch (error) {

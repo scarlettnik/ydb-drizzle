@@ -1,9 +1,25 @@
-export { YdbDialect } from "./ydb/dialect.js";
+export {
+  YdbDialect,
+  type YdbDeleteConfig,
+  type YdbDialectMigration,
+  type YdbDialectMigrationConfig,
+  type YdbInsertConfig,
+  type YdbJoinConfig,
+  type YdbJoinType,
+  type YdbRefreshMaterializedViewConfig,
+  type YdbRelationalQueryConfig,
+  type YdbRelationalQueryResult,
+  type YdbSelectConfig,
+  type YdbSetOperatorConfig,
+  type YdbSetOperatorSource,
+  type YdbUpdateConfig,
+} from "./ydb/dialect.js";
 export {
   YdbDriver,
   type YdbDriverOptions,
   type YdbExecuteOptions,
   type YdbExecutor,
+  type YdbQueryMeta,
   type YdbQueryResult,
   type YdbRemoteCallback,
   type YdbTransactionConfig,
@@ -11,6 +27,11 @@ export {
 export { YdbSession } from "./ydb-core/session.js";
 export { YdbTransaction } from "./ydb-core/transaction.js";
 export { YdbDatabase } from "./ydb-core/db.js";
+export {
+  type YdbSchemaDefinition,
+  type YdbSchemaRelations,
+  type YdbSchemaWithoutTables,
+} from "./ydb-core/schema.types.js";
 export { union, unionAll, intersect, except } from "./ydb-core/query-builders/select.js";
 export { check } from "./ydb-core/checks.js";
 export { foreignKey, type YdbForeignKeyAction } from "./ydb-core/foreign-keys.js";

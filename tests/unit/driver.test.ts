@@ -36,10 +36,25 @@ test("execute", async () => {
   (driver as any).client = mockClient.ql;
 
   const executeResult = await driver.execute("select * from ponies", [1, "Rainbow"], "execute");
-  const valuesResult = await driver.execute("select * from ponies", [2], "all", { arrayMode: true });
+  const valuesResult = await driver.execute("select * from ponies", [2], "all", {
+    arrayMode: true,
+    typings: ["none"],
+  });
 
   assert.deepEqual(executeResult.rows, [{ pony: "Twilight" }]);
+  assert.equal(executeResult.rowCount, 1);
+  assert.equal(executeResult.command, "execute");
+  assert.deepEqual(executeResult.meta, {
+    arrayMode: false,
+    typings: undefined,
+  });
   assert.deepEqual(valuesResult.rows, [["Twilight", 7]]);
+  assert.equal(valuesResult.rowCount, 1);
+  assert.equal(valuesResult.command, "all");
+  assert.deepEqual(valuesResult.meta, {
+    arrayMode: true,
+    typings: ["none"],
+  });
   assert.equal(mockClient.calls.length, 2);
   assert.equal(mockClient.calls[0]?.text, "select * from ponies");
   assert.deepEqual(

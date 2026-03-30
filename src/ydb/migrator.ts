@@ -1,11 +1,7 @@
 import { readMigrationFiles, type MigrationConfig as DrizzleMigrationConfig, type MigrationMeta } from "drizzle-orm/migrator";
-import { sql } from "drizzle-orm/sql";
 import type { YdbDatabase } from "../ydb-core/db.js";
-import type { YdbSession } from "../ydb-core/session.js";
+import { YdbDialect } from "./dialect.js";
 import {
-  buildMigrationHistoryInsertSql,
-  buildMigrationHistorySelectSql,
-  buildMigrationTableBootstrapSql,
   normalizeInlineMigration,
   type YdbInlineMigration,
   type YdbMigrationTableConfig,
@@ -40,28 +36,6 @@ function normalizeMigrations(config: YdbMigrateConfig): YdbNormalizedMigration[]
   return config.migrations.map((migration, index) => normalizeInlineMigration(migration, index));
 }
 
-async function ensureMigrationTable(session: YdbSession, config: YdbMigrationTableConfig): Promise<void> {
-  await session.execute(sql.raw(buildMigrationTableBootstrapSql(config)));
-}
-
-async function readAppliedMigrationHashes(session: YdbSession, config: YdbMigrationTableConfig): Promise<Set<string>> {
-  const rows = await session.values<[string, number | string, string]>(sql.raw(buildMigrationHistorySelectSql(config)));
-  return new Set(rows.map(([hash]) => hash));
-}
-
-async function applyMigration(session: YdbSession, migration: YdbNormalizedMigration, config: YdbMigrationTableConfig): Promise<void> {
-  for (const statement of migration.sql) {
-    const trimmed = statement.trim();
-    if (trimmed === "") {
-      continue;
-    }
-
-    await session.execute(sql.raw(trimmed));
-  }
-
-  await session.execute(sql.raw(buildMigrationHistoryInsertSql(migration, config)));
-}
-
 export async function migrate<TSchema extends Record<string, unknown>>(
   db: YdbDatabase<TSchema, any>,
   config: YdbMigrateConfig,
@@ -77,17 +51,6 @@ export async function migrate<TSchema extends Record<string, unknown>>(
       migrationsSchema: config.migrationsSchema,
     };
 
-  await ensureMigrationTable(session, migrationConfig);
-
-  const appliedHashes = await readAppliedMigrationHashes(session, migrationConfig);
-  const migrations = normalizeMigrations(config).sort((left, right) => left.folderMillis - right.folderMillis);
-
-  for (const migration of migrations) {
-    if (appliedHashes.has(migration.hash)) {
-      continue;
-    }
-
-    await applyMigration(session, migration, migrationConfig);
-    appliedHashes.add(migration.hash);
-  }
+  const dialect = new YdbDialect();
+  await dialect.migrate(normalizeMigrations(config), session, migrationConfig);
 }

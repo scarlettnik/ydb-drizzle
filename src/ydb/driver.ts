@@ -14,8 +14,16 @@ export interface YdbExecuteOptions {
   typings?: unknown[];
 }
 
+export interface YdbQueryMeta {
+  arrayMode: boolean;
+  typings?: unknown[];
+}
+
 export interface YdbQueryResult {
   rows: unknown[];
+  rowCount?: number;
+  command?: YdbExecutionMethod;
+  meta?: YdbQueryMeta;
 }
 
 export type YdbRemoteCallback = (
@@ -45,6 +53,7 @@ async function execQuery(
   ql: QueryClient | TX,
   text: string,
   params: unknown[],
+  method: YdbExecutionMethod,
   options?: YdbExecuteOptions,
 ): Promise<YdbQueryResult> {
   let query = ql(text);
@@ -53,8 +62,19 @@ async function execQuery(
     query = query.parameter(`p${i}`, fromJs(params[i] as any));
   }
 
-  const raw = options?.arrayMode ? await query.values() : await query;
-  return { rows: getRows(raw) };
+  const executedQuery = options?.arrayMode ? query.values() : query;
+  const raw = await executedQuery;
+  const rows = getRows(raw);
+
+  return {
+    rows,
+    rowCount: rows.length,
+    command: method,
+    meta: {
+      arrayMode: options?.arrayMode === true,
+      typings: options?.typings ? [...options.typings] : undefined,
+    },
+  };
 }
 
 function mapTransactionConfig(config?: YdbTransactionConfig): { isolation?: "serializableReadWrite" | "snapshotReadOnly"; idempotent?: boolean } | undefined {
@@ -76,8 +96,8 @@ function mapTransactionConfig(config?: YdbTransactionConfig): { isolation?: "ser
 class YdbTxExecutor implements YdbExecutor {
   constructor(private readonly tx: TX) {}
 
-  execute(sql: string, params: unknown[], _method: YdbExecutionMethod, options?: YdbExecuteOptions): Promise<YdbQueryResult> {
-    return execQuery(this.tx, sql, params, options);
+  execute(sql: string, params: unknown[], method: YdbExecutionMethod, options?: YdbExecuteOptions): Promise<YdbQueryResult> {
+    return execQuery(this.tx, sql, params, method, options);
   }
 
   async transaction<T>(_callback: (tx: YdbExecutor) => Promise<T>, _config?: YdbTransactionConfig): Promise<T> {
@@ -116,8 +136,8 @@ export class YdbDriver implements YdbExecutor {
     await this.driver.ready(signal);
   }
 
-  execute(sql: string, params: unknown[], _method: YdbExecutionMethod, options?: YdbExecuteOptions): Promise<YdbQueryResult> {
-    return execQuery(this.client, sql, params, options);
+  execute(sql: string, params: unknown[], method: YdbExecutionMethod, options?: YdbExecuteOptions): Promise<YdbQueryResult> {
+    return execQuery(this.client, sql, params, method, options);
   }
 
   async transaction<T>(callback: (tx: YdbExecutor) => Promise<T>, config?: YdbTransactionConfig): Promise<T> {

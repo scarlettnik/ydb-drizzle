@@ -1,6 +1,5 @@
 import { entityKind } from "drizzle-orm/entity";
 import type {
-  ExtractTablesWithRelations,
   RelationalSchemaConfig,
   TablesRelationalConfig,
 } from "drizzle-orm/relations";
@@ -10,6 +9,11 @@ import type { YdbTransactionConfig } from "../ydb/driver.js";
 import type { YdbDialect } from "../ydb/dialect.js";
 import type { YdbSession } from "./session.js";
 import type { YdbQuerySource } from "./session.js";
+import type {
+  YdbSchemaDefinition,
+  YdbSchemaRelations,
+  YdbSchemaWithoutTables,
+} from "./schema.types.js";
 import type { YdbTable } from "./table.js";
 import {
   YdbDeleteBuilder,
@@ -19,48 +23,62 @@ import {
   YdbUpdateBuilder,
 } from "./query-builders/index.js";
 
+/**
+ * Database shape available inside `db.transaction(...)`.
+ *
+ * @typeParam TSchemaDefinition - Raw schema object passed to `drizzle({ schema })`.
+ * @typeParam TSchemaRelations - Relational metadata extracted from `TSchemaDefinition`.
+ */
 export type YdbTransactionScope<
-  TFullSchema extends Record<string, unknown> = Record<string, never>,
-  TSchema extends TablesRelationalConfig = ExtractTablesWithRelations<TFullSchema>,
-> = YdbDatabase<TFullSchema, TSchema> & {
+  TSchemaDefinition extends YdbSchemaDefinition = YdbSchemaWithoutTables,
+  TSchemaRelations extends TablesRelationalConfig = YdbSchemaRelations<TSchemaDefinition>,
+> = YdbDatabase<TSchemaDefinition, TSchemaRelations> & {
   rollback(): never;
 };
 
+/**
+ * Main Drizzle database wrapper for YDB.
+ *
+ * @typeParam TSchemaDefinition - Raw schema object passed to `drizzle({ schema })`.
+ * @typeParam TSchemaRelations - Relational metadata extracted from `TSchemaDefinition`.
+ */
 export class YdbDatabase<
-  TFullSchema extends Record<string, unknown> = Record<string, never>,
-  TSchema extends TablesRelationalConfig = ExtractTablesWithRelations<TFullSchema>,
+  TSchemaDefinition extends YdbSchemaDefinition = YdbSchemaWithoutTables,
+  TSchemaRelations extends TablesRelationalConfig = YdbSchemaRelations<TSchemaDefinition>,
 > {
   static readonly [entityKind] = "YdbDatabase";
 
   readonly _: {
-    readonly schema: TSchema | undefined;
-    readonly fullSchema: TFullSchema;
+    /** Relational metadata generated from `fullSchema` and used by `db.query.*`. */
+    readonly schema: TSchemaRelations | undefined;
+    /** Exact schema object passed to `drizzle({ schema })`. */
+    readonly fullSchema: TSchemaDefinition;
     readonly tableNamesMap: Record<string, string>;
     readonly session: YdbSession;
   };
 
-  query: TFullSchema extends Record<string, never> ? DrizzleTypeError<
+  query: TSchemaDefinition extends YdbSchemaWithoutTables ? DrizzleTypeError<
     "Seems like the schema generic is missing - did you forget to add it to your DB type?"
   >
     : {
-      [K in keyof TSchema]: YdbRelationalQueryBuilder<TSchema, TSchema[K]>;
+      [K in keyof TSchemaRelations]: YdbRelationalQueryBuilder<TSchemaRelations, TSchemaRelations[K]>;
     };
 
   constructor(
     protected readonly dialect: YdbDialect,
     protected readonly session: YdbSession,
-    schema?: RelationalSchemaConfig<TSchema>,
+    schema?: RelationalSchemaConfig<TSchemaRelations>,
   ) {
     this._ = schema
       ? {
         schema: schema.schema,
-        fullSchema: schema.fullSchema as TFullSchema,
+        fullSchema: schema.fullSchema as TSchemaDefinition,
         tableNamesMap: schema.tableNamesMap,
         session,
       }
       : {
         schema: undefined,
-        fullSchema: {} as TFullSchema,
+        fullSchema: {} as TSchemaDefinition,
         tableNamesMap: {},
         session,
       };
@@ -132,13 +150,16 @@ export class YdbDatabase<
     return new YdbDeleteBuilder(table, this.session);
   }
 
-  transaction<T>(transaction: (tx: YdbTransactionScope<TFullSchema, TSchema>) => Promise<T>, config?: YdbTransactionConfig) {
+  transaction<T>(
+    transaction: (tx: YdbTransactionScope<TSchemaDefinition, TSchemaRelations>) => Promise<T>,
+    config?: YdbTransactionConfig,
+  ) {
     const schema = this._.schema
       ? {
         fullSchema: this._.fullSchema,
         schema: this._.schema,
         tableNamesMap: this._.tableNamesMap,
-      } as RelationalSchemaConfig<TSchema>
+      } as RelationalSchemaConfig<TSchemaRelations>
       : undefined;
 
     return this.session.transaction(transaction, config, schema);
