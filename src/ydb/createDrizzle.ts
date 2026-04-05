@@ -2,7 +2,7 @@ import { DefaultLogger, type Logger } from "drizzle-orm/logger";
 import { createTableRelationsHelpers, extractTablesRelationalConfig } from "drizzle-orm/relations";
 import type { Casing } from "drizzle-orm/utils";
 import { YdbDialect } from "./dialect.js";
-import { YdbDriver, type YdbExecutor, type YdbRemoteCallback } from "./driver.js";
+import { YdbDriver, type YdbExecutor, type YdbRemoteCallback, type YdbTransactionalExecutor } from "./driver.js";
 import type {
   YdbSchemaDefinition,
   YdbSchemaRelations,
@@ -31,7 +31,7 @@ export interface YdbDrizzleConfig<TSchemaDefinition extends YdbSchemaDefinition 
 export interface YdbDrizzleOptions<TSchemaDefinition extends YdbSchemaDefinition = YdbSchemaWithoutTables>
   extends YdbDrizzleConfig<TSchemaDefinition> {
   connectionString?: string;
-  client?: YdbExecutor;
+  client?: YdbExecutor | YdbTransactionalExecutor;
 }
 
 /**
@@ -47,7 +47,7 @@ function isYdbExecutor(value: unknown): value is YdbExecutor {
 }
 
 function makeDb<TSchemaDefinition extends YdbSchemaDefinition>(
-  executor: YdbExecutor,
+  executor: YdbExecutor | YdbTransactionalExecutor,
   config: YdbDrizzleConfig<TSchemaDefinition> = {},
 ): YdbDrizzleDatabase<TSchemaDefinition> {
   const dialect = new YdbDialect({ casing: config.casing });
@@ -100,11 +100,11 @@ function isYdbOptions<TSchemaDefinition extends YdbSchemaDefinition>(
  * @typeParam TSchemaDefinition - User schema object passed via `schema`, for example `{ users, posts }`.
  */
 export function createDrizzle<TSchemaDefinition extends YdbSchemaDefinition>(
-  input: YdbExecutor | YdbRemoteCallback,
+  input: YdbExecutor | YdbTransactionalExecutor | YdbRemoteCallback,
   config: YdbDrizzleConfig<TSchemaDefinition> & { schema: TSchemaDefinition },
 ): YdbDrizzleDatabase<TSchemaDefinition>;
 export function createDrizzle(
-  input: YdbExecutor | YdbRemoteCallback,
+  input: YdbExecutor | YdbTransactionalExecutor | YdbRemoteCallback,
   config?: YdbDrizzleConfig<YdbSchemaWithoutTables>,
 ): YdbDrizzleDatabase<YdbSchemaWithoutTables>;
 export function createDrizzle<TSchemaDefinition extends YdbSchemaDefinition>(
@@ -114,7 +114,7 @@ export function createDrizzle(
   input: YdbDrizzleOptions<YdbSchemaWithoutTables>,
 ): YdbDrizzleDatabase<YdbSchemaWithoutTables>;
 export function createDrizzle<TSchemaDefinition extends YdbSchemaDefinition = YdbSchemaWithoutTables>(
-  input: YdbExecutor | YdbRemoteCallback | YdbDrizzleOptions<TSchemaDefinition>,
+  input: YdbExecutor | YdbTransactionalExecutor | YdbRemoteCallback | YdbDrizzleOptions<TSchemaDefinition>,
   config?: YdbDrizzleConfig<TSchemaDefinition>,
 ): YdbDrizzleDatabase<TSchemaDefinition> {
   if (typeof input === "function") {

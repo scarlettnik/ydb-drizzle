@@ -88,11 +88,6 @@ test("prepared execute", async () => {
 
   assert.deepEqual(await rawPrepared.execute(), [{ id: 1, name: "Rarity" }]);
   assert.deepEqual(await arrayPrepared.execute(), [[1, "Rarity"]]);
-
-  await assert.rejects(
-    () => rawPrepared.execute({ id: 1 }),
-    /Prepared query placeholders are not supported yet/,
-  );
 });
 
 test("prepared get", async () => {
@@ -217,9 +212,6 @@ test("session transaction", async () => {
         return await callback({
           async execute() {
             return { rows: [] };
-          },
-          async transaction() {
-            throw new Error("Nested transactions are not supported by YDB");
           },
         });
       } catch (error) {

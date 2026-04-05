@@ -1,6 +1,5 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { sql } from "drizzle-orm";
 import {
   buildAddColumnsSql,
   buildAddIndexSql,
@@ -9,8 +8,6 @@ import {
   buildDropIndexSql,
   buildDropTableSql,
   buildMigrationSql,
-  check,
-  foreignKey,
   index,
   integer,
   text,
@@ -77,30 +74,12 @@ test("migration DDL generates alter and drop statements", () => {
   );
 });
 
-test("migration DDL rejects unsupported or invalid YDB constructs", () => {
+test("migration DDL rejects invalid YDB constructs", () => {
   const users = ydbTable("users", {
     id: integer("id").notNull().primaryKey(),
     name: text("name"),
   });
-  const posts = ydbTable("posts", {
-    id: integer("id").notNull().primaryKey(),
-    authorId: integer("author_id").notNull(),
-  }, (table) => [
-    foreignKey({
-      name: "posts_author_fk",
-      columns: [table.authorId],
-      foreignColumns: [users.id],
-    }),
-  ]);
-  const checkedUsers = ydbTable("checked_users", {
-    id: integer("id").notNull().primaryKey(),
-    age: integer("age"),
-  }, (table) => [
-    check("checked_users_age_positive", sql`${table.age} > ${0}`),
-  ]);
   const uniqueAge = unique("users_age_unique").on(users.name).build(users);
 
-  assert.throws(() => buildCreateTableSql(posts), /FOREIGN KEY/u);
-  assert.throws(() => buildCreateTableSql(checkedUsers), /CHECK/u);
   assert.throws(() => buildAddIndexSql(users, uniqueAge), /cannot add UNIQUE indexes/u);
 });

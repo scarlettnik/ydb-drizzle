@@ -8,12 +8,3 @@ test("transaction rollback throws Drizzle rollback error", () => {
 
   assert.throws(() => tx.rollback(), TransactionRollbackError);
 });
-
-test("nested transactions are rejected directly by YdbTransaction", async () => {
-  const tx = new YdbTransaction(new YdbDialect(), {} as any);
-
-  await assert.rejects(
-    async () => tx.transaction(async () => 1),
-    /Nested transactions are not supported by YDB/,
-  );
-});

@@ -32,7 +32,7 @@ import {
 export type YdbTransactionScope<
   TSchemaDefinition extends YdbSchemaDefinition = YdbSchemaWithoutTables,
   TSchemaRelations extends TablesRelationalConfig = YdbSchemaRelations<TSchemaDefinition>,
-> = YdbDatabase<TSchemaDefinition, TSchemaRelations> & {
+> = Omit<YdbDatabase<TSchemaDefinition, TSchemaRelations>, "transaction"> & {
   rollback(): never;
 };
 

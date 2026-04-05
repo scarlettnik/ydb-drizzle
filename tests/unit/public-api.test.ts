@@ -16,8 +16,6 @@ import { migrate } from "../../src/ydb/migrator.js";
 import { customType } from "../../src/ydb-core/columns/custom.js";
 import { integer } from "../../src/ydb-core/columns/integer.js";
 import { text } from "../../src/ydb-core/columns/text.js";
-import { check } from "../../src/ydb-core/checks.js";
-import { foreignKey } from "../../src/ydb-core/foreign-keys.js";
 import { index, uniqueIndex } from "../../src/ydb-core/indexes.js";
 import { primaryKey } from "../../src/ydb-core/primary-keys.js";
 import { unique } from "../../src/ydb-core/unique-constraint.js";
@@ -42,8 +40,6 @@ test("root public API re-exports runtime entry points", () => {
   assert.equal(publicApi.uniqueIndex, uniqueIndex);
   assert.equal(publicApi.primaryKey, primaryKey);
   assert.equal(publicApi.unique, unique);
-  assert.equal(publicApi.foreignKey, foreignKey);
-  assert.equal(publicApi.check, check);
   assert.equal(publicApi.buildCreateTableSql, buildCreateTableSql);
   assert.equal(publicApi.migrate, migrate);
   assert.equal(publicApi.union, union);

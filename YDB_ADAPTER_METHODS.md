@@ -19,7 +19,6 @@
 - [x] YdbDriver.close()
 - [x] YdbDriver.fromCallback(callback)
 - [x] YdbTxExecutor.execute(...)
-- [x] YdbTxExecutor.transaction(...) throws for nested transactions
 - [x] mapTransactionConfig(...)
 - [x] result shape now preserves `rowCount`, `command` and `meta`
 - [ ] replica / read-write split support
@@ -45,7 +44,6 @@
 - [x] buildDeleteQuery(config)
 - [x] buildSetOperations(leftSelect, setOperators)
 - [x] buildSetOperationQuery(config) //native UNION/UNION ALL + adapter-side INTERSECT/EXCEPT emulation
-- [x] buildRefreshMaterializedViewQuery(config) //fail-fast "not supported by YDB"
 - [x] buildRelationalQueryWithoutPK(config) //flat single-table relational SQL
 - [x] migrate(...)
 
@@ -68,11 +66,10 @@
 - [x] YdbPreparedQuery
 - [x] getQuery()
 - [x] mapResult(response, isFromBatch?)
-- [x] execute(placeholderValues?)
-- [x] all(placeholderValues?)
-- [x] values(placeholderValues?)
-- [x] get(placeholderValues?) including custom result mappers that return a single object/value
-- [ ] runtime placeholder rebinding is still not implemented; non-empty `placeholderValues` currently throw
+- [x] execute()
+- [x] all()
+- [x] values()
+- [x] get() including custom result mappers that return a single object/value
 
 ### 4. Database Surface
 
@@ -101,7 +98,6 @@
 
 **src/ydb-core/transaction.ts**
 - [x] constructor(dialect, session)
-- [x] transaction(...) throws for nested transactions
 - [x] rollback()
 - [ ] explicit transaction setup helper
 
@@ -142,9 +138,6 @@
 - [x] toSQL()
 - [x] prepare(name?)
 - [ ] select(selectQuery)
-- [ ] returning(fields?)
-- [ ] onConflictDoNothing(...)
-- [ ] onConflictDoUpdate(...)
 - [ ] onDuplicateKeyUpdate(...)
 
 **Update: src/ydb-core/query-builders/update.ts**
@@ -158,9 +151,6 @@
 - [x] rejects empty update sets
 - [x] toSQL()
 - [x] prepare(name?)
-- [?] returning(fields?)
-- [?] from(source)
-- [?] join-based update helpers
 
 **Delete: src/ydb-core/query-builders/delete.ts**
 - [x] constructor(table, session)
@@ -169,7 +159,6 @@
 - [x] execute()
 - [x] toSQL()
 - [x] prepare(name?)
-- [ ] returning(fields?)
 - [ ] using(...)
 
 **Additional builders**
@@ -229,8 +218,6 @@
 - [x] uniqueIndex(...)
 - [x] primaryKey(...)
 - [x] unique(...)
-- [?] foreignKey(...) - YDB DDL generation rejects it explicitly because YDB has no FOREIGN KEY support
-- [?] check(...) - YDB DDL generation rejects it explicitly because YDB has no CHECK support
 
 ### 8. Relations And Schema-Aware API
 
@@ -238,8 +225,8 @@
 - [ ] one(...)
 - [ ] many(...)
 - [x] schema extraction from config.schema
-- [x] db.query.<table>.findMany(...) for flat single-table queries without `with`/`extras`
-- [x] db.query.<table>.findFirst(...) for flat single-table queries without `with`/`extras`
+- [x] db.query.<table>.findMany(...) for flat single-table queries
+- [x] db.query.<table>.findFirst(...) for flat single-table queries
 - [ ] dialect relational SQL builder (buildRelationalQueryWithoutPK(...))
 - [ ] row mapping for relational selections
 

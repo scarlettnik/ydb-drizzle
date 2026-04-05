@@ -27,9 +27,35 @@ function isNumberValue(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value);
 }
 
+type YdbRelationalManyConfig<
+  TSchema extends TablesRelationalConfig,
+  TFields extends TableRelationalConfig,
+> = {
+  columns?: DBQueryConfig<"many", true, TSchema, TFields>["columns"];
+  where?: DBQueryConfig<"many", true, TSchema, TFields>["where"];
+  orderBy?: DBQueryConfig<"many", true, TSchema, TFields>["orderBy"];
+  limit?: number;
+  offset?: number;
+};
+
+type YdbRelationalFirstConfig<
+  TSchema extends TablesRelationalConfig,
+  TFields extends TableRelationalConfig,
+> = Omit<YdbRelationalManyConfig<TSchema, TFields>, "limit"> & {
+  limit?: never;
+};
+
+type YdbRelationalAnyConfig = {
+  columns?: DBQueryConfig<"many", true>["columns"];
+  where?: DBQueryConfig<"many", true>["where"];
+  orderBy?: DBQueryConfig<"many", true>["orderBy"];
+  limit?: number;
+  offset?: number;
+};
+
 function getSelectedFields(
   tableConfig: TableRelationalConfig,
-  config: DBQueryConfig<"many", true> | true,
+  config: YdbRelationalAnyConfig | true,
 ): Record<string, YdbColumn> {
   const columns = tableConfig.columns as Record<string, YdbColumn>;
 
@@ -51,7 +77,7 @@ function getSelectedFields(
 
 function getWhereClause(
   tableConfig: TableRelationalConfig,
-  config: DBQueryConfig<"many", true> | true,
+  config: YdbRelationalAnyConfig | true,
 ): SQL | undefined {
   if (config === true || config.where === undefined) {
     return undefined;
@@ -66,7 +92,7 @@ function getWhereClause(
 
 function getOrderByClause(
   tableConfig: TableRelationalConfig,
-  config: DBQueryConfig<"many", true> | true,
+  config: YdbRelationalAnyConfig | true,
 ): SQL[] {
   if (config === true || config.orderBy === undefined) {
     return [];
@@ -79,7 +105,7 @@ function getOrderByClause(
   return toArray(orderBy).map((field) => sql`${field as SQLWrapper}`);
 }
 
-function getLimitClause(config: DBQueryConfig<"many", true> | true, mode: "many" | "first"): number | undefined {
+function getLimitClause(config: YdbRelationalAnyConfig | true, mode: "many" | "first"): number | undefined {
   if (mode === "first") {
     return 1;
   }
@@ -89,19 +115,19 @@ function getLimitClause(config: DBQueryConfig<"many", true> | true, mode: "many"
   }
 
   if (!isNumberValue(config.limit)) {
-    throw new Error("YDB relational query limit placeholders are not supported yet");
+    throw new Error("YDB relational query limit must be a finite number");
   }
 
   return config.limit;
 }
 
-function getOffsetClause(config: DBQueryConfig<"many", true> | true): number | undefined {
+function getOffsetClause(config: YdbRelationalAnyConfig | true): number | undefined {
   if (config === true || config.offset === undefined) {
     return undefined;
   }
 
   if (!isNumberValue(config.offset)) {
-    throw new Error("YDB relational query offset placeholders are not supported yet");
+    throw new Error("YDB relational query offset must be a finite number");
   }
 
   return config.offset;
@@ -122,8 +148,8 @@ export class YdbRelationalQueryBuilder<
     private readonly session: YdbSession,
   ) {}
 
-  findMany<TConfig extends DBQueryConfig<"many", true, TSchema, TFields>>(
-    config?: KnownKeysOnly<TConfig, DBQueryConfig<"many", true, TSchema, TFields>>,
+  findMany<TConfig extends YdbRelationalManyConfig<TSchema, TFields>>(
+    config?: KnownKeysOnly<TConfig, YdbRelationalManyConfig<TSchema, TFields>>,
   ): YdbRelationalQuery<BuildQueryResult<TSchema, TFields, TConfig>[]> {
     return new YdbRelationalQuery(
       this.fullSchema,
@@ -132,13 +158,13 @@ export class YdbRelationalQueryBuilder<
       this.table,
       this.tableConfig,
       this.session,
-      config ? (config as DBQueryConfig<"many", true>) : true,
+      config ? (config as YdbRelationalAnyConfig) : true,
       "many",
     );
   }
 
-  findFirst<TConfig extends Omit<DBQueryConfig<"many", true, TSchema, TFields>, "limit">>(
-    config?: KnownKeysOnly<TConfig, Omit<DBQueryConfig<"many", true, TSchema, TFields>, "limit">>,
+  findFirst<TConfig extends YdbRelationalFirstConfig<TSchema, TFields>>(
+    config?: KnownKeysOnly<TConfig, YdbRelationalFirstConfig<TSchema, TFields>>,
   ): YdbRelationalQuery<BuildQueryResult<TSchema, TFields, TConfig> | undefined> {
     return new YdbRelationalQuery(
       this.fullSchema,
@@ -147,7 +173,7 @@ export class YdbRelationalQueryBuilder<
       this.table,
       this.tableConfig,
       this.session,
-      config ? (config as DBQueryConfig<"many", true>) : true,
+      config ? (config as YdbRelationalAnyConfig) : true,
       "first",
     );
   }
@@ -168,24 +194,10 @@ export class YdbRelationalQuery<TResult> extends QueryPromise<TResult> {
     private readonly table: YdbTable,
     private readonly tableConfig: TableRelationalConfig,
     private readonly session: YdbSession,
-    private readonly config: DBQueryConfig<"many", true> | true,
+    private readonly config: YdbRelationalAnyConfig | true,
     private readonly mode: "many" | "first",
   ) {
     super();
-  }
-
-  private assertSupportedConfig(): void {
-    if (this.config === true) {
-      return;
-    }
-
-    if (this.config.with !== undefined) {
-      throw new Error("YDB relational query `with` is not supported yet");
-    }
-
-    if (this.config.extras !== undefined) {
-      throw new Error("YDB relational query `extras` is not supported yet");
-    }
   }
 
   private getSelectedFields(): Record<string, YdbColumn> {
@@ -199,8 +211,6 @@ export class YdbRelationalQuery<TResult> extends QueryPromise<TResult> {
   }
 
   getSQL(): SQL {
-    this.assertSupportedConfig();
-
     const selectedFields = this.getSelectedFields();
     const selection = sql.join(
       Object.values(selectedFields).map((field) => sql`${field}`),
@@ -224,8 +234,6 @@ export class YdbRelationalQuery<TResult> extends QueryPromise<TResult> {
   }
 
   prepare(name?: string) {
-    this.assertSupportedConfig();
-
     const orderedFields = this.getOrderedFields();
     const customResultMapper = this.mode === "first"
       ? (rows: unknown[][]) => {

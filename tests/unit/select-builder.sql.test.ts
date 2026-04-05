@@ -139,10 +139,3 @@ test("distinctOn and set operators sql", () => {
   assert.deepEqual(intersectQuery.params, [1, 1]);
   assert.deepEqual(exceptQuery.params, [1, 1]);
 });
-
-test("locking clauses are rejected", () => {
-  assert.throws(
-    () => new YdbSelectBuilder(session).from(users).for(),
-    /YDB locking clauses are not supported/,
-  );
-});

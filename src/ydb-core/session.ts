@@ -2,10 +2,9 @@ import { entityKind } from "drizzle-orm/entity";
 import { TransactionRollbackError } from "drizzle-orm/errors";
 import { NoopLogger, type Logger } from "drizzle-orm/logger";
 import type { RelationalSchemaConfig, TablesRelationalConfig } from "drizzle-orm/relations";
-import type { PreparedQuery } from "drizzle-orm/session";
 import type { QueryWithTypings, SQL, SQLWrapper } from "drizzle-orm/sql/sql";
 import type { YdbDialect } from "../ydb/dialect.js";
-import type { YdbExecutor, YdbExecuteOptions } from "../ydb/driver.js";
+import type { YdbExecuteOptions, YdbExecutor, YdbTransactionalExecutor } from "../ydb/driver.js";
 import type { YdbTransactionConfig } from "../ydb/driver.js";
 import { mapResultRow, type YdbSelectedFieldsOrdered } from "./result-mapping.js";
 import type {
@@ -42,16 +41,16 @@ function isRunnablePreparedQuery(query: YdbQuerySource): query is SQLWrapper & Y
   return "prepare" in query && typeof query.prepare === "function";
 }
 
+function supportsTransactions(client: YdbExecutor | YdbTransactionalExecutor): client is YdbTransactionalExecutor {
+  return "transaction" in client && typeof client.transaction === "function";
+}
+
 function normalizeQuery(query: YdbQuerySource, dialect: YdbDialect): QueryWithTypings {
   if (isQueryWithTypings(query)) {
     return query as QueryWithTypings;
   }
 
   return dialect.sqlToQuery(query.getSQL());
-}
-
-function hasPlaceholderValues(placeholderValues: Record<string, unknown> | undefined): boolean {
-  return !!placeholderValues && Object.keys(placeholderValues).length > 0;
 }
 
 function findTransactionRollbackError(error: unknown): TransactionRollbackError | undefined {
@@ -68,7 +67,7 @@ function findTransactionRollbackError(error: unknown): TransactionRollbackError 
   return undefined;
 }
 
-export class YdbPreparedQuery<T extends YdbPreparedQueryConfig = YdbPreparedQueryConfig> implements PreparedQuery {
+export class YdbPreparedQuery<T extends YdbPreparedQueryConfig = YdbPreparedQueryConfig> {
   static readonly [entityKind] = "YdbPreparedQuery";
 
   constructor(
@@ -107,12 +106,7 @@ export class YdbPreparedQuery<T extends YdbPreparedQueryConfig = YdbPreparedQuer
   private async run(
     method: "execute" | "all",
     arrayMode: boolean,
-    placeholderValues?: Record<string, unknown>,
   ): Promise<unknown[]> {
-    if (hasPlaceholderValues(placeholderValues)) {
-      throw new Error("Prepared query placeholders are not supported yet");
-    }
-
     const options: YdbExecuteOptions = {
       arrayMode,
       typings: this.query.typings,
@@ -123,24 +117,24 @@ export class YdbPreparedQuery<T extends YdbPreparedQueryConfig = YdbPreparedQuer
     return result.rows;
   }
 
-  async execute(placeholderValues?: Record<string, unknown>): Promise<T["execute"]> {
-    const rows = await this.run("execute", this.responseInArrayMode, placeholderValues);
+  async execute(): Promise<T["execute"]> {
+    const rows = await this.run("execute", this.responseInArrayMode);
     return this.mapResult(rows) as T["execute"];
   }
 
-  async all(placeholderValues?: Record<string, unknown>): Promise<T["all"]> {
-    const rows = await this.run("all", this.responseInArrayMode, placeholderValues);
+  async all(): Promise<T["all"]> {
+    const rows = await this.run("all", this.responseInArrayMode);
     return this.mapResult(rows) as T["all"];
   }
 
-  async get(placeholderValues?: Record<string, unknown>): Promise<T["get"]> {
-    const rows = await this.run("all", this.responseInArrayMode, placeholderValues);
+  async get(): Promise<T["get"]> {
+    const rows = await this.run("all", this.responseInArrayMode);
     const result = this.mapResult(rows);
     return (Array.isArray(result) ? result[0] : result) as T["get"];
   }
 
-  async values(placeholderValues?: Record<string, unknown>): Promise<T["values"]> {
-    const rows = await this.run("all", true, placeholderValues);
+  async values(): Promise<T["values"]> {
+    const rows = await this.run("all", true);
     return rows as T["values"];
   }
 }
@@ -150,7 +144,7 @@ export class YdbSession {
   private readonly logger: Logger;
 
   constructor(
-    private readonly client: YdbExecutor,
+    private readonly client: YdbExecutor | YdbTransactionalExecutor,
     private readonly dialect: YdbDialect,
     options: YdbSessionOptions = {},
   ) {
@@ -248,7 +242,7 @@ export class YdbSession {
     config?: YdbTransactionConfig,
     schema?: RelationalSchemaConfig<TSchemaRelations>,
   ): Promise<T> {
-    if (!this.client.transaction) {
+    if (!supportsTransactions(this.client)) {
       throw new Error("Transactions are not supported");
     }
 

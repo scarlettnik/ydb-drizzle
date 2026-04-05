@@ -114,11 +114,6 @@ test("dialect helper queries execute on live YDB", async (t) => {
 
     const remainingRows = await live.db.select().from(users).where(eq(users.id, userId));
     assert.deepEqual(remainingRows, []);
-
-    assert.throws(
-      () => dialect.buildRefreshMaterializedViewQuery({ view: sql.identifier("materialized_users") }),
-      /does not support materialized view refresh queries/,
-    );
   } finally {
     await live.deleteUserRows([userId]);
   }

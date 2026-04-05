@@ -302,10 +302,6 @@ export class YdbSelectBuilder<TResult = unknown[]> extends QueryPromise<TResult>
     return this;
   }
 
-  for(): never {
-    throw new Error("YDB locking clauses are not supported");
-  }
-
   getSQL(selectionAliases?: string[]): SQL {
     const config = this.requireConfigWithTable();
     const fieldsFlat = orderSelectedFields(config.fields);

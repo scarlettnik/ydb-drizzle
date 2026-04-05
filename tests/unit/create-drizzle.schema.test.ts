@@ -73,16 +73,3 @@ test("schema", async () => {
   assert.match(executedQueries[1] ?? "", /^select `users`\.`id`, `users`\.`name` from `users` where `users`\.`id` = \$p0 limit \$p1$/);
   assert.match(executedQueries[2] ?? "", /^select `users`\.`id`, `users`\.`name` from `users` where `users`\.`id` = \$p0 limit \$p1$/);
 });
-
-test("schema rejects with", async () => {
-  const db = drizzle({
-    async execute() {
-      return { rows: [] };
-    },
-  }, { schema });
-
-  await assert.rejects(
-    async () => (db as any).query.users.findMany({ with: { posts: true } }).execute(),
-    /YDB relational query `with` is not supported yet/,
-  );
-});

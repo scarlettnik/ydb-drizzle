@@ -3,10 +3,10 @@ export {
   type YdbDeleteConfig,
   type YdbDialectMigration,
   type YdbDialectMigrationConfig,
+  type YdbFlatRelationalQueryConfig,
   type YdbInsertConfig,
   type YdbJoinConfig,
   type YdbJoinType,
-  type YdbRefreshMaterializedViewConfig,
   type YdbRelationalQueryConfig,
   type YdbRelationalQueryResult,
   type YdbSelectConfig,
@@ -22,6 +22,7 @@ export {
   type YdbQueryMeta,
   type YdbQueryResult,
   type YdbRemoteCallback,
+  type YdbTransactionalExecutor,
   type YdbTransactionConfig,
 } from "./ydb/driver.js";
 export { YdbSession } from "./ydb-core/session.js";
@@ -33,8 +34,6 @@ export {
   type YdbSchemaWithoutTables,
 } from "./ydb-core/schema.types.js";
 export { union, unionAll, intersect, except } from "./ydb-core/query-builders/select.js";
-export { check } from "./ydb-core/checks.js";
-export { foreignKey, type YdbForeignKeyAction } from "./ydb-core/foreign-keys.js";
 export { index, uniqueIndex } from "./ydb-core/indexes.js";
 export { migrate, type YdbMigrateConfig, type YdbMigratorConfig } from "./ydb/migrator.js";
 export {

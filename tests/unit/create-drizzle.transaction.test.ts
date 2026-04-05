@@ -52,9 +52,6 @@ test("transaction commit", async () => {
         async execute(query, params, method, options) {
           return executeInStore(query, params, options);
         },
-        async transaction() {
-          throw new Error("Nested transactions are not supported by YDB");
-        },
       });
     },
   }, {
@@ -100,9 +97,6 @@ test("transaction rollback", async () => {
         return await callback({
           async execute() {
             return { rows: [] };
-          },
-          async transaction() {
-            throw new Error("Nested transactions are not supported by YDB");
           },
         });
       } catch (error) {

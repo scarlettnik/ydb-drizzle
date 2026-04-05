@@ -1,8 +1,6 @@
 import { is } from "drizzle-orm/entity";
 import { Table } from "drizzle-orm/table";
 import type { YdbColumn } from "./columns/common.js";
-import { YdbCheckBuilder, type YdbCheck } from "./checks.js";
-import { YdbForeignKeyBuilder, type YdbForeignKey } from "./foreign-keys.js";
 import { YdbIndexBuilder, type YdbIndex } from "./indexes.js";
 import { YdbPrimaryKeyBuilder, type YdbPrimaryKey } from "./primary-keys.js";
 import { YdbTable, type YdbTableExtraConfigValue, type YdbTableWithColumns } from "./table.js";
@@ -13,10 +11,8 @@ export interface YdbTableRuntimeConfig {
   readonly name: string;
   readonly columns: readonly YdbColumn[];
   readonly indexes: readonly YdbIndex[];
-  readonly checks: readonly YdbCheck[];
   readonly primaryKeys: readonly YdbPrimaryKey[];
   readonly uniqueConstraints: readonly YdbUniqueConstraint[];
-  readonly foreignKeys: readonly YdbForeignKey[];
 }
 
 function normalizeExtraConfig(
@@ -36,10 +32,8 @@ function normalizeExtraConfig(
 export function getTableConfig(table: YdbTableWithColumns): YdbTableRuntimeConfig {
   const columns = Object.values((table as any)[YdbTable.Symbol.Columns] ?? {}) as YdbColumn[];
   const indexes: YdbIndex[] = [];
-  const checks: YdbCheck[] = [];
   const primaryKeys: YdbPrimaryKey[] = [];
   const uniqueConstraints: YdbUniqueConstraint[] = [];
-  const foreignKeys: YdbForeignKey[] = [];
 
   const extraConfigBuilder = (table as any)[YdbTable.Symbol.ExtraConfigBuilder] as
     | ((self: YdbTableWithColumns) => YdbTableExtraConfigValue[] | Record<string, YdbTableExtraConfigValue>)
@@ -49,14 +43,10 @@ export function getTableConfig(table: YdbTableWithColumns): YdbTableRuntimeConfi
   for (const builder of extraValues) {
     if (is(builder, YdbIndexBuilder)) {
       indexes.push(builder.build(table));
-    } else if (is(builder, YdbCheckBuilder)) {
-      checks.push(builder.build(table));
     } else if (is(builder, YdbPrimaryKeyBuilder)) {
       primaryKeys.push(builder.build(table));
     } else if (is(builder, YdbUniqueConstraintBuilder)) {
       uniqueConstraints.push(builder.build(table));
-    } else if (is(builder, YdbForeignKeyBuilder)) {
-      foreignKeys.push(builder.build(table));
     }
   }
 
@@ -64,9 +54,7 @@ export function getTableConfig(table: YdbTableWithColumns): YdbTableRuntimeConfi
     name: (table as any)[drizzleTableSymbol.Name] as string,
     columns,
     indexes,
-    checks,
     primaryKeys,
     uniqueConstraints,
-    foreignKeys,
   };
 }

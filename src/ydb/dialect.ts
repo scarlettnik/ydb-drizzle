@@ -29,7 +29,6 @@ import type {
   YdbDialectMigrationConfig,
   YdbInsertConfig,
   YdbJoinConfig,
-  YdbRefreshMaterializedViewConfig,
   YdbRelationalQueryConfig,
   YdbRelationalQueryResult,
   YdbSetOperatorConfig,
@@ -46,10 +45,10 @@ export {
   type YdbDeleteConfig,
   type YdbDialectMigration,
   type YdbDialectMigrationConfig,
+  type YdbFlatRelationalQueryConfig,
   type YdbInsertConfig,
   type YdbJoinConfig,
   type YdbJoinType,
-  type YdbRefreshMaterializedViewConfig,
   type YdbRelationalQueryConfig,
   type YdbRelationalQueryResult,
   type YdbSelectConfig,
@@ -190,14 +189,6 @@ export class YdbDialect {
   }
 
   buildInsertQuery(config: YdbInsertConfig): SQL {
-    if (config.onConflict && (!Array.isArray(config.onConflict) || config.onConflict.length > 0)) {
-      throw new Error("YDB insert onConflict clauses are not supported");
-    }
-
-    if (config.returning && config.returning.length > 0) {
-      throw new Error("YDB insert returning() is not supported");
-    }
-
     const withSql = this.buildWithCTE(config.withList);
     const columnEntries = getInsertColumnEntries(config.table);
     if (columnEntries.length === 0) {
@@ -254,26 +245,6 @@ export class YdbDialect {
   }
 
   buildUpdateQuery(config: YdbUpdateConfig): SQL {
-    if (config.returning && config.returning.length > 0) {
-      throw new Error("YDB update returning() is not supported");
-    }
-
-    if (config.from) {
-      throw new Error("YDB update from() is not supported");
-    }
-
-    if (config.joins && config.joins.length > 0) {
-      throw new Error("YDB update joins are not supported");
-    }
-
-    if (config.orderBy && config.orderBy.length > 0) {
-      throw new Error("YDB update orderBy() is not supported");
-    }
-
-    if (config.limit !== undefined) {
-      throw new Error("YDB update limit() is not supported");
-    }
-
     const withSql = this.buildWithCTE(config.withList);
     const setSql = this.buildUpdateSet(config.table, config.set);
     const whereSql = config.where ? sql` where ${config.where}` : undefined;
@@ -282,26 +253,10 @@ export class YdbDialect {
   }
 
   buildDeleteQuery(config: YdbDeleteConfig): SQL {
-    if (config.returning && config.returning.length > 0) {
-      throw new Error("YDB delete returning() is not supported");
-    }
-
-    if (config.orderBy && config.orderBy.length > 0) {
-      throw new Error("YDB delete orderBy() is not supported");
-    }
-
-    if (config.limit !== undefined) {
-      throw new Error("YDB delete limit() is not supported");
-    }
-
     const withSql = this.buildWithCTE(config.withList);
     const whereSql = config.where ? sql` where ${config.where}` : undefined;
 
     return sql`${withSql}delete from ${this.buildFromTable(config.table)}${whereSql}`;
-  }
-
-  buildRefreshMaterializedViewQuery(_config: YdbRefreshMaterializedViewConfig): SQL {
-    throw new Error("YDB does not support materialized view refresh queries");
   }
 
   buildRelationalQueryWithoutPK({
@@ -309,13 +264,8 @@ export class YdbDialect {
     tableConfig,
     queryConfig: config,
     tableAlias,
-    nestedQueryRelation,
     joinOn,
   }: YdbRelationalQueryConfig): YdbRelationalQueryResult {
-    if (nestedQueryRelation) {
-      throw new Error("YDB relational query `with` is not supported yet");
-    }
-
     let where: SQL | undefined;
     let orderBy: SQL[] = [];
     let limit: number | undefined;
@@ -329,14 +279,6 @@ export class YdbDialect {
     if (config === true) {
       selectedColumns = Object.keys(tableConfig.columns);
     } else {
-      if (config.with !== undefined) {
-        throw new Error("YDB relational query `with` is not supported yet");
-      }
-
-      if (config.extras !== undefined) {
-        throw new Error("YDB relational query `extras` is not supported yet");
-      }
-
       if (config.where) {
         const whereSql = typeof config.where === "function" ? config.where(aliasedColumns, getOperators()) : config.where;
         where = whereSql ? mapColumnsInSQLToAlias(whereSql, tableAlias) : undefined;
@@ -383,14 +325,14 @@ export class YdbDialect {
 
       if (config.limit !== undefined) {
         if (!isNumberValue(config.limit)) {
-          throw new Error("YDB relational query limit placeholders are not supported yet");
+          throw new Error("YDB relational query limit must be a finite number");
         }
         limit = config.limit;
       }
 
       if (config.offset !== undefined) {
         if (!isNumberValue(config.offset)) {
-          throw new Error("YDB relational query offset placeholders are not supported yet");
+          throw new Error("YDB relational query offset must be a finite number");
         }
         offset = config.offset;
       }

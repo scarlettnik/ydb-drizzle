@@ -1,6 +1,5 @@
 import { TransactionRollbackError } from "drizzle-orm/errors";
 import type { RelationalSchemaConfig, TablesRelationalConfig } from "drizzle-orm/relations";
-import type { YdbTransactionConfig } from "../ydb/driver.js";
 import type { YdbDialect } from "../ydb/dialect.js";
 import type { YdbSession } from "./session.js";
 import type {
@@ -30,12 +29,5 @@ export class YdbTransaction<
 
   rollback(): never {
     throw new TransactionRollbackError();
-  }
-
-  override async transaction<T>(
-    _transaction: (tx: YdbTransaction<TSchemaDefinition, TSchemaRelations>) => Promise<T>,
-    _config?: YdbTransactionConfig,
-  ): Promise<T> {
-    throw new Error("Nested transactions are not supported by YDB");
   }
 }

@@ -84,10 +84,6 @@ test("transaction", async () => {
 
   const txResult = await driver.transaction(async (tx) => {
     const result = await tx.execute("select tx", [9], "execute");
-    await assert.rejects(
-      () => tx.transaction!(async () => "nested"),
-      /Nested transactions are not supported by YDB/,
-    );
 
     return result.rows;
   }, { accessMode: "read only" });

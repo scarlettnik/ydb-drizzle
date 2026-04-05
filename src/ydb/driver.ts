@@ -35,9 +35,12 @@ export type YdbRemoteCallback = (
 
 export interface YdbExecutor {
   execute(sql: string, params: unknown[], method: YdbExecutionMethod, options?: YdbExecuteOptions): Promise<YdbQueryResult>;
-  transaction?<T>(callback: (tx: YdbExecutor) => Promise<T>, config?: YdbTransactionConfig): Promise<T>;
   ready?(signal?: AbortSignal): Promise<void>;
   close?(): Promise<void> | void;
+}
+
+export interface YdbTransactionalExecutor extends YdbExecutor {
+  transaction<T>(callback: (tx: YdbExecutor) => Promise<T>, config?: YdbTransactionConfig): Promise<T>;
 }
 
 function getRows<T = unknown>(result: unknown): T[] {
@@ -99,17 +102,13 @@ class YdbTxExecutor implements YdbExecutor {
   execute(sql: string, params: unknown[], method: YdbExecutionMethod, options?: YdbExecuteOptions): Promise<YdbQueryResult> {
     return execQuery(this.tx, sql, params, method, options);
   }
-
-  async transaction<T>(_callback: (tx: YdbExecutor) => Promise<T>, _config?: YdbTransactionConfig): Promise<T> {
-    throw new Error("Nested transactions are not supported by YDB");
-  }
 }
 
 export interface YdbDriverOptions {
   connectionString: string;
 }
 
-export class YdbDriver implements YdbExecutor {
+export class YdbDriver implements YdbTransactionalExecutor {
   readonly driver: Driver;
   readonly client: QueryClient;
   #ownsDriver: boolean;

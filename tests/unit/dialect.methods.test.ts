@@ -193,60 +193,7 @@ test("buildWithCTE, buildInsertQuery, buildUpdateSet, buildUpdateQuery and build
   assert.deepEqual(deleteQuery.params, [7]);
 });
 
-test("dialect mutation helpers fail fast on unsupported clauses", () => {
-  assert.throws(
-    () => dialect.buildInsertQuery({
-      table: users,
-      values: [{ id: 1, name: "Applejack" }],
-      onConflict: sql`do nothing`,
-    }),
-    /onConflict clauses are not supported/,
-  );
-
-  assert.throws(
-    () => dialect.buildInsertQuery({
-      table: users,
-      values: [{ id: 1, name: "Applejack" }],
-      returning: [{ path: ["id"], field: users.id }],
-    }),
-    /insert returning\(\) is not supported/,
-  );
-
-  assert.throws(
-    () => dialect.buildUpdateQuery({
-      table: users,
-      set: { name: "Applejack" },
-      from: sql.identifier("other_users"),
-    }),
-    /update from\(\) is not supported/,
-  );
-
-  assert.throws(
-    () => dialect.buildUpdateQuery({
-      table: users,
-      set: { name: "Applejack" },
-      joins: [{ table: sql.identifier("other_users"), joinType: "inner", on: sql`true` }],
-    }),
-    /update joins are not supported/,
-  );
-
-  assert.throws(
-    () => dialect.buildDeleteQuery({
-      table: users,
-      orderBy: [users.id],
-    }),
-    /delete orderBy\(\) is not supported/,
-  );
-
-  assert.throws(
-    () => dialect.buildRefreshMaterializedViewQuery({
-      view: sql.identifier("materialized_users"),
-    }),
-    /does not support materialized view refresh queries/,
-  );
-});
-
-test("buildRelationalQueryWithoutPK builds flat schema-aware queries and rejects unsupported relation config", () => {
+test("buildRelationalQueryWithoutPK builds flat schema-aware queries", () => {
   const schema = { users };
   const tablesConfig = extractTablesRelationalConfig(schema, createTableRelationsHelpers);
   const relationalQuery = dialect.buildRelationalQueryWithoutPK({
@@ -278,19 +225,6 @@ test("buildRelationalQueryWithoutPK builds flat schema-aware queries and rejects
       { tsKey: "id", dbKey: "id" },
       { tsKey: "name", dbKey: "name" },
     ],
-  );
-
-  assert.throws(
-    () => dialect.buildRelationalQueryWithoutPK({
-      fullSchema: schema,
-      schema: tablesConfig.tables as any,
-      tableNamesMap: tablesConfig.tableNamesMap,
-      table: users,
-      tableConfig: (tablesConfig.tables as any).users,
-      queryConfig: { with: {} },
-      tableAlias: "users_rel",
-    }),
-    /relational query `with` is not supported yet/,
   );
 });
 

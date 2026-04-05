@@ -3,8 +3,6 @@ import { Table, type TableConfig as TableConfigBase } from "drizzle-orm/table";
 import type { YdbColumn } from "./columns/common.js";
 import type { YdbColumnBuilderBase } from "./columns/common.js";
 import type { YdbColumnBuilders } from "./columns/all.js";
-import type { YdbCheckBuilder } from "./checks.js";
-import type { YdbForeignKeyBuilder } from "./foreign-keys.js";
 import type { YdbIndexBuilder } from "./indexes.js";
 import type { YdbPrimaryKeyBuilder } from "./primary-keys.js";
 import type { YdbUniqueConstraintBuilder } from "./unique-constraint.js";
@@ -25,10 +23,8 @@ export type YdbColumnsFactory = (builders: YdbColumnBuilders) => YdbColumnsMap;
 export type YdbColumnsInput = YdbColumnsMap | YdbColumnsFactory;
 export type YdbTableExtraConfigValue =
   | YdbIndexBuilder
-  | YdbCheckBuilder
   | YdbPrimaryKeyBuilder
-  | YdbUniqueConstraintBuilder
-  | YdbForeignKeyBuilder;
+  | YdbUniqueConstraintBuilder;
 export type YdbTableExtraConfig = Record<string, YdbTableExtraConfigValue>;
 export type YdbTableExtraConfigBuilder = (
   self: YdbTableWithColumns,

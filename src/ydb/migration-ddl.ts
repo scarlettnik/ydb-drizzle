@@ -1,8 +1,6 @@
 import crypto from "node:crypto";
 import { getTableName } from "drizzle-orm/table";
 import type { YdbColumn } from "../ydb-core/columns/common.js";
-import type { YdbCheck } from "../ydb-core/checks.js";
-import type { YdbForeignKey } from "../ydb-core/foreign-keys.js";
 import type { YdbIndex, YdbIndexConfig } from "../ydb-core/indexes.js";
 import type { YdbPrimaryKey } from "../ydb-core/primary-keys.js";
 import { getTableConfig } from "../ydb-core/table.utils.js";
@@ -90,16 +88,6 @@ function getObjectName(value: string | YdbTable): string {
 function getMigrationTableName(config: YdbMigrationTableConfig): string {
   const tableName = config.migrationsTable ?? "__drizzle_migrations";
   return config.migrationsSchema ? `${config.migrationsSchema}/${tableName}` : tableName;
-}
-
-function assertNoUnsupportedConstraints(checks: readonly YdbCheck[], foreignKeys: readonly YdbForeignKey[]): void {
-  if (checks.length > 0) {
-    throw new Error("YDB migrate() DDL generation does not support CHECK constraints");
-  }
-
-  if (foreignKeys.length > 0) {
-    throw new Error("YDB migrate() DDL generation does not support FOREIGN KEY constraints");
-  }
 }
 
 function ensureSupportedColumn(column: YdbColumn): void {
@@ -194,8 +182,7 @@ export function buildMigrationTableBootstrapSql(config: YdbMigrationTableConfig 
 }
 
 export function buildCreateTableSql(table: YdbTableWithColumns, options: { ifNotExists?: boolean } = {}): string {
-  const { columns, indexes, checks, primaryKeys, uniqueConstraints, foreignKeys } = getTableConfig(table);
-  assertNoUnsupportedConstraints(checks, foreignKeys);
+  const { columns, indexes, primaryKeys, uniqueConstraints } = getTableConfig(table);
 
   const primaryKeyColumns = getPrimaryKeyColumns(columns, primaryKeys);
   if (primaryKeyColumns.length === 0) {

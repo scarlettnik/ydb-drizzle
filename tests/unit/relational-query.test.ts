@@ -65,21 +65,4 @@ test("relational builder", async () => {
   });
   assert.match(executedSql[0] ?? "", /^select `users`\.`id`, `users`\.`name` from `users` where `users`\.`id` = \$p0 order by `users`\.`name` desc limit \$p1 offset \$p2$/);
   assert.match(executedSql[1] ?? "", /^select `users`\.`id`, `users`\.`name`, `users`\.`created_at`, `users`\.`updated_at` from `users` where `users`\.`id` = \$p0 limit \$p1$/);
-
-  await assert.rejects(
-    async () => relational.findMany({ with: {} as any }).execute(),
-    /YDB relational query `with` is not supported yet/,
-  );
-  await assert.rejects(
-    async () => relational.findMany({ extras: {} as any }).execute(),
-    /YDB relational query `extras` is not supported yet/,
-  );
-  assert.throws(
-    () => relational.findMany({ limit: "1" as any }).getSQL(),
-    /limit placeholders are not supported yet/,
-  );
-  assert.throws(
-    () => relational.findMany({ offset: "2" as any }).getSQL(),
-    /offset placeholders are not supported yet/,
-  );
 });
