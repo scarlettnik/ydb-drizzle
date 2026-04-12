@@ -32,10 +32,14 @@ const schema = {
 test("transaction commit", async () => {
   const transactionConfigs: unknown[] = [];
   const logs: Array<{ query: string; params: unknown[] }> = [];
+  const buildObjectRows = (query: string, values: unknown[]) => {
+    const aliases = Array.from(query.matchAll(/ as `([^`]+)`/g), (match) => match[1]!);
+    return [Object.fromEntries(aliases.map((alias, index) => [alias, values[index]]))];
+  };
   const executeInStore = async (query: string, _params: unknown[], options?: { arrayMode?: boolean }) => {
     if (query.startsWith("select")) {
       return {
-        rows: options?.arrayMode ? [[1, "Rainbow Dash"]] : [{ id: 1, name: "Rainbow Dash" }],
+        rows: options?.arrayMode ? [[1, "Rainbow Dash"]] : buildObjectRows(query, [1, "Rainbow Dash"]),
       };
     }
 
@@ -82,7 +86,7 @@ test("transaction commit", async () => {
   });
   assert.deepEqual(transactionConfigs, [{ accessMode: "read write", idempotent: false }]);
   assert.ok(logs.some(({ query }) => query.startsWith("insert into `users`")));
-  assert.ok(logs.some(({ query }) => query.startsWith("select `users`.`id`, `users`.`name` from `users`")));
+  assert.ok(logs.some(({ query }) => query.startsWith("select `users`.`id` as `__ydb_c0`, `users`.`name` as `__ydb_c1` from `users` `users`")));
 });
 
 test("transaction rollback", async () => {

@@ -1,7 +1,9 @@
 import { QueryPromise } from "drizzle-orm/query-promise";
 import { sql, type SQL } from "drizzle-orm/sql/sql";
+import type { Subquery } from "drizzle-orm/subquery";
 import type { YdbPreparedQueryConfig, YdbSession } from "../session.js";
 import type { YdbTable } from "../table.js";
+import { YdbDialect } from "../../ydb/dialect.js";
 import { getTableColumns, resolveUpdateValue, validateTableColumnKeys } from "./utils.js";
 
 type UpdateValues = Record<string, unknown>;
@@ -13,6 +15,8 @@ export class YdbUpdateBuilder<TResult = unknown> extends QueryPromise<TResult> {
   constructor(
     private readonly table: YdbTable,
     private readonly session: YdbSession,
+    private readonly dialect = new YdbDialect(),
+    private readonly withList: Subquery[] = [],
   ) {
     super();
   }
@@ -48,14 +52,16 @@ export class YdbUpdateBuilder<TResult = unknown> extends QueryPromise<TResult> {
       throw new Error("Update values are empty");
     }
 
-    const setSql = sql.join(setEntries, sql`, `);
-    const whereSql = this.whereClause ? sql` where ${this.whereClause}` : undefined;
-    return sql`update ${this.table} set ${setSql}${whereSql}`;
+    return this.dialect.buildUpdateQuery({
+      table: this.table,
+      set: this.valuesData,
+      where: this.whereClause,
+      withList: this.withList,
+    });
   }
 
   toSQL() {
-    const prepared = this.session.prepareQuery<YdbPreparedQueryConfig>(this.getSQL(), undefined);
-    const { typings: _typings, ...query } = prepared.getQuery();
+    const { typings: _typings, ...query } = this.dialect.sqlToQuery(this.getSQL());
     return query;
   }
 

@@ -33,10 +33,6 @@ test("builders", async () => {
   assert.deepEqual(
     prepareCalls.map(({ name, isResponseInArrayMode }) => ({ name, isResponseInArrayMode })),
     [
-      { name: undefined, isResponseInArrayMode: false },
-      { name: undefined, isResponseInArrayMode: false },
-      { name: undefined, isResponseInArrayMode: false },
-      { name: undefined, isResponseInArrayMode: false },
       { name: "sel_users", isResponseInArrayMode: true },
       { name: "ins_users", isResponseInArrayMode: false },
       { name: "upd_users", isResponseInArrayMode: false },

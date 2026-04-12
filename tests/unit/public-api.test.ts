@@ -1,10 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import * as publicApi from "../../src/index.js";
+import { createMany, createOne, relations } from "drizzle-orm";
 import * as queryBuilders from "../../src/ydb-core/query-builders/index.js";
 import { YdbDatabase } from "../../src/ydb-core/db.js";
+import { YdbCountBuilder } from "../../src/ydb-core/query-builders/count.js";
 import { YdbDeleteBuilder } from "../../src/ydb-core/query-builders/delete.js";
 import { YdbInsertBuilder } from "../../src/ydb-core/query-builders/insert.js";
+import { YdbQueryBuilder } from "../../src/ydb-core/query-builders/query-builder.js";
 import { YdbRelationalQuery, YdbRelationalQueryBuilder } from "../../src/ydb-core/query-builders/query.js";
 import { except, intersect, union, unionAll, YdbSelectBuilder } from "../../src/ydb-core/query-builders/select.js";
 import { YdbUpdateBuilder } from "../../src/ydb-core/query-builders/update.js";
@@ -31,6 +34,9 @@ test("root public API re-exports runtime entry points", () => {
   assert.equal(publicApi.YdbDatabase, YdbDatabase);
   assert.equal(publicApi.drizzle, drizzle);
   assert.equal(publicApi.createDrizzle, createDrizzle);
+  assert.equal(publicApi.relations, relations);
+  assert.equal(publicApi.one, createOne);
+  assert.equal(publicApi.many, createMany);
   assert.equal(publicApi.ydbTable, ydbTable);
   assert.equal(publicApi.integer, integer);
   assert.equal(publicApi.int, integer);
@@ -46,13 +52,17 @@ test("root public API re-exports runtime entry points", () => {
   assert.equal(publicApi.unionAll, unionAll);
   assert.equal(publicApi.intersect, intersect);
   assert.equal(publicApi.except, except);
+  assert.equal(publicApi.YdbCountBuilder, YdbCountBuilder);
+  assert.equal(publicApi.YdbQueryBuilder, YdbQueryBuilder);
 });
 
 test("query builder barrel re-exports concrete builder implementations", () => {
+  assert.equal(queryBuilders.YdbCountBuilder, YdbCountBuilder);
   assert.equal(queryBuilders.YdbSelectBuilder, YdbSelectBuilder);
   assert.equal(queryBuilders.YdbInsertBuilder, YdbInsertBuilder);
   assert.equal(queryBuilders.YdbUpdateBuilder, YdbUpdateBuilder);
   assert.equal(queryBuilders.YdbDeleteBuilder, YdbDeleteBuilder);
+  assert.equal(queryBuilders.YdbQueryBuilder, YdbQueryBuilder);
   assert.equal(queryBuilders.YdbRelationalQueryBuilder, YdbRelationalQueryBuilder);
   assert.equal(queryBuilders.YdbRelationalQuery, YdbRelationalQuery);
   assert.equal(queryBuilders.union, union);

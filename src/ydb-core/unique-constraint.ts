@@ -3,8 +3,12 @@ import { getTableName } from "drizzle-orm/table";
 import type { YdbColumn } from "./columns/common.js";
 import type { YdbTable } from "./table.js";
 
+export function uniqueKeyName(table: YdbTable, columns: readonly string[]): string {
+  return `${getTableName(table)}_${columns.join("_")}_unique`;
+}
+
 function defaultUniqueName(table: YdbTable, columns: readonly YdbColumn[]): string {
-  return `${getTableName(table)}_${columns.map((column) => column.name).join("_")}_unique`;
+  return uniqueKeyName(table, columns.map((column) => column.name));
 }
 
 function assertColumnsBelongToTable(table: YdbTable, columns: readonly YdbColumn[]): void {

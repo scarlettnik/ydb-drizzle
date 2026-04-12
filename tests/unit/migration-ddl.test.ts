@@ -83,3 +83,16 @@ test("migration DDL rejects invalid YDB constructs", () => {
 
   assert.throws(() => buildAddIndexSql(users, uniqueAge), /cannot add UNIQUE indexes/u);
 });
+
+test("migration DDL includes inline column unique constraints", () => {
+  const users = ydbTable("migration_unique_users", {
+    id: integer("id").notNull().primaryKey(),
+    email: text("email").notNull().unique(),
+    externalId: text("external_id").unique("migration_unique_users_external_unique"),
+  });
+
+  const ddl = buildCreateTableSql(users);
+
+  assert.match(ddl, /INDEX `migration_unique_users_email_unique` GLOBAL UNIQUE SYNC ON \(`email`\)/u);
+  assert.match(ddl, /INDEX `migration_unique_users_external_unique` GLOBAL UNIQUE SYNC ON \(`external_id`\)/u);
+});

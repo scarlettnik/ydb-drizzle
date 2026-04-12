@@ -1,6 +1,7 @@
 import { entityKind, is } from "drizzle-orm/entity";
 import { QueryPromise } from "drizzle-orm/query-promise";
 import { SQL, type SQLWrapper } from "drizzle-orm/sql/sql";
+import type { Subquery } from "drizzle-orm/subquery";
 import { haveSameKeys } from "drizzle-orm/utils";
 import { mapResultRow, orderSelectedFields } from "../result-mapping.js";
 import type { YdbPreparedQueryConfig, YdbSession } from "../session.js";
@@ -19,7 +20,7 @@ import {
 export class YdbSelectBuilder<TResult = unknown[]> extends QueryPromise<TResult> implements YdbSetOperatorSource {
   static readonly [entityKind] = "YdbSelectBuilder";
 
-  private readonly session: YdbSession;
+  private readonly session: YdbSession | undefined;
   private readonly dialect: YdbDialect;
   private readonly config: Omit<YdbSelectConfig, "table"> & { table?: unknown };
   private readonly isPartialSelect: boolean;
@@ -28,20 +29,22 @@ export class YdbSelectBuilder<TResult = unknown[]> extends QueryPromise<TResult>
   private usedInSetOperation = false;
 
   constructor(
-    session: YdbSession,
+    session: YdbSession | undefined,
     fields?: SelectFields,
   );
   constructor(
-    session: YdbSession,
+    session: YdbSession | undefined,
     dialect: YdbDialect,
     fields?: SelectFields,
     options?: YdbSelectBuilderOptions,
+    withList?: Subquery[],
   );
   constructor(
-    session: YdbSession,
+    session: YdbSession | undefined,
     dialectOrFields?: YdbDialect | SelectFields,
     fieldsOrUndefined?: SelectFields,
     options: YdbSelectBuilderOptions = {},
+    withList: Subquery[] = [],
   ) {
     super();
     this.session = session;
@@ -52,6 +55,7 @@ export class YdbSelectBuilder<TResult = unknown[]> extends QueryPromise<TResult>
       this.config = {
         table: undefined,
         fields: fieldsOrUndefined ? { ...fieldsOrUndefined } : {},
+        withList,
         distinct: options.distinct,
         distinctOn: options.distinctOn,
         setOperators: [],
@@ -64,6 +68,7 @@ export class YdbSelectBuilder<TResult = unknown[]> extends QueryPromise<TResult>
     this.config = {
       table: undefined,
       fields: dialectOrFields ? { ...(dialectOrFields as SelectFields) } : {},
+      withList,
       distinct: false,
       distinctOn: undefined,
       setOperators: [],
@@ -89,6 +94,14 @@ export class YdbSelectBuilder<TResult = unknown[]> extends QueryPromise<TResult>
       ...this.config,
       table,
     };
+  }
+
+  private requireSession(): YdbSession {
+    if (!this.session) {
+      throw new Error("Cannot execute a query on a query builder. Please use a database instance instead.");
+    }
+
+    return this.session;
   }
 
   private markUsedInSetOperation(): void {
@@ -315,17 +328,17 @@ export class YdbSelectBuilder<TResult = unknown[]> extends QueryPromise<TResult>
   }
 
   toSQL() {
-    const prepared = this.session.prepareQuery<YdbPreparedQueryConfig>(this.getSQL(), this.getOrderedFields());
-    const { typings: _typings, ...query } = prepared.getQuery();
+    const { typings: _typings, ...query } = this.dialect.sqlToQuery(this.getSQL());
     return query;
   }
 
   prepare(name?: string) {
+    const session = this.requireSession();
     const orderedFields = this.getOrderedFields();
     const joinsNotNullableMap = Object.keys(this.joinsNotNullableMap).length > 0 ? this.joinsNotNullableMap : undefined;
     const resultMapper = (rows: unknown[][]) => rows.map((row) => mapResultRow(orderedFields, row, joinsNotNullableMap));
 
-    return this.session.prepareQuery<YdbPreparedQueryConfig & { execute: TResult; all: TResult }>(
+    return session.prepareQuery<YdbPreparedQueryConfig & { execute: TResult; all: TResult }>(
       this.getSQL(),
       orderedFields,
       name,

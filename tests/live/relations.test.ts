@@ -1,8 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { eq } from "drizzle-orm";
 import { createLiveContext } from "./helpers/context.js";
-import { users, usersTableName } from "./helpers/schema.js";
+import { posts, postsTableName, users, usersTableName } from "./helpers/schema.js";
 
 const live = createLiveContext();
 
@@ -59,5 +58,92 @@ test("findMany", async (t) => {
     ]);
   } finally {
     await live.deleteUserRows([firstId, secondId]);
+  }
+});
+
+test("many relation hydration", async (t) => {
+  if (!live.requireLiveYdb(t)) return;
+  live.describeDbChange(t, "insert one user and two posts, resolve users.posts through schema-aware query API, then clean rows");
+  const userId = live.baseIntId + 241;
+  const firstPostId = live.baseIntId + 242;
+  const secondPostId = live.baseIntId + 243;
+
+  live.liveQueryLog.length = 0;
+  live.log("users.posts", userId, firstPostId, secondPostId);
+  await live.deletePostRows([firstPostId, secondPostId]);
+  await live.deleteUserRows([userId]);
+
+  try {
+    await live.db.insert(users).values({ id: userId, name: "pinkie pie" });
+    await live.db.insert(posts).values([
+      { id: firstPostId, userId, title: "cupcakes" },
+      { id: secondPostId, userId, title: "party cannon" },
+    ]);
+
+    const row = await (live.db as any).query.users.findFirst({
+      columns: { id: true, name: true },
+      where: (fields: typeof users, { eq }: { eq: (left: unknown, right: unknown) => unknown }) => eq(fields.id, userId),
+      with: {
+        posts: {
+          columns: { id: true, title: true },
+          orderBy: (fields: typeof posts, { asc }: { asc: (value: unknown) => unknown }) => asc(fields.id),
+        },
+      },
+    });
+
+    assert.deepEqual(row, {
+      id: userId,
+      name: "pinkie pie",
+      posts: [
+        { id: firstPostId, title: "cupcakes" },
+        { id: secondPostId, title: "party cannon" },
+      ],
+    });
+    assert.ok(live.liveQueryLog.some(({ query }) => query.includes(`from \`${usersTableName}\``)));
+    assert.ok(live.liveQueryLog.some(({ query }) => query.includes(`from \`${postsTableName}\``)));
+  } finally {
+    await live.deletePostRows([firstPostId, secondPostId]);
+    await live.deleteUserRows([userId]);
+  }
+});
+
+test("one relation hydration", async (t) => {
+  if (!live.requireLiveYdb(t)) return;
+  live.describeDbChange(t, "insert one user and one post, resolve posts.author through schema-aware query API, then clean rows");
+  const userId = live.baseIntId + 261;
+  const postId = live.baseIntId + 262;
+
+  live.liveQueryLog.length = 0;
+  live.log("posts.author", userId, postId);
+  await live.deletePostRows([postId]);
+  await live.deleteUserRows([userId]);
+
+  try {
+    await live.db.insert(users).values({ id: userId, name: "fluttershy" });
+    await live.db.insert(posts).values({ id: postId, userId, title: "tea time" });
+
+    const row = await (live.db as any).query.posts.findFirst({
+      columns: { id: true, title: true },
+      where: (fields: typeof posts, { eq }: { eq: (left: unknown, right: unknown) => unknown }) => eq(fields.id, postId),
+      with: {
+        author: {
+          columns: { id: true, name: true },
+        },
+      },
+    });
+
+    assert.deepEqual(row, {
+      id: postId,
+      title: "tea time",
+      author: {
+        id: userId,
+        name: "fluttershy",
+      },
+    });
+    assert.ok(live.liveQueryLog.some(({ query }) => query.includes(`from \`${postsTableName}\``)));
+    assert.ok(live.liveQueryLog.some(({ query }) => query.includes(`from \`${usersTableName}\``)));
+  } finally {
+    await live.deletePostRows([postId]);
+    await live.deleteUserRows([userId]);
   }
 });

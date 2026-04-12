@@ -1,14 +1,19 @@
 import { QueryPromise } from "drizzle-orm/query-promise";
-import { sql, type SQL } from "drizzle-orm/sql/sql";
+import { type SQL, type SQLWrapper } from "drizzle-orm/sql/sql";
+import type { Subquery } from "drizzle-orm/subquery";
 import type { YdbPreparedQueryConfig, YdbSession } from "../session.js";
 import type { YdbTable } from "../table.js";
+import { YdbDialect } from "../../ydb/dialect.js";
 
 export class YdbDeleteBuilder<TResult = unknown> extends QueryPromise<TResult> {
   private whereClause?: SQL;
+  private usingTables: SQLWrapper[] = [];
 
   constructor(
     private readonly table: YdbTable,
     private readonly session: YdbSession,
+    private readonly dialect = new YdbDialect(),
+    private readonly withList: Subquery[] = [],
   ) {
     super();
   }
@@ -18,14 +23,22 @@ export class YdbDeleteBuilder<TResult = unknown> extends QueryPromise<TResult> {
     return this;
   }
 
+  using(...tables: SQLWrapper[]): this {
+    this.usingTables = [...tables];
+    return this;
+  }
+
   getSQL(): SQL {
-    const whereSql = this.whereClause ? sql` where ${this.whereClause}` : undefined;
-    return sql`delete from ${this.table}${whereSql}`;
+    return this.dialect.buildDeleteQuery({
+      table: this.table,
+      where: this.whereClause,
+      using: this.usingTables.length > 0 ? [...this.usingTables] : undefined,
+      withList: this.withList,
+    });
   }
 
   toSQL() {
-    const prepared = this.session.prepareQuery<YdbPreparedQueryConfig>(this.getSQL(), undefined);
-    const { typings: _typings, ...query } = prepared.getQuery();
+    const { typings: _typings, ...query } = this.dialect.sqlToQuery(this.getSQL());
     return query;
   }
 

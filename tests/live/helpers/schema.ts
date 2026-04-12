@@ -9,6 +9,7 @@ import {
   integer,
   json,
   jsonDocument,
+  relations,
   text,
   timestamp,
   uint32,
@@ -49,6 +50,17 @@ export const posts = ydbTable(postsTableName, {
   title: text("title").notNull(),
 });
 
+export const usersRelations = relations(users, ({ many }) => ({
+  posts: many(posts),
+}));
+
+export const postsRelations = relations(posts, ({ one }) => ({
+  author: one(users, {
+    fields: [posts.userId],
+    references: [users.id],
+  }),
+}));
+
 export const typesTable = ydbTable(typesTableName, {
   id: uint64("id").notNull(),
   flag: boolean("flag"),
@@ -66,4 +78,4 @@ export const typesTable = ydbTable(typesTableName, {
   ysonValue: yson("yson_value"),
 });
 
-export const liveSchema = { users, posts, typesTable };
+export const liveSchema = { users, posts, typesTable, usersRelations, postsRelations };

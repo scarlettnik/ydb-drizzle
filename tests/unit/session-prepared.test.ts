@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { TransactionRollbackError } from "drizzle-orm/errors";
 import { sql } from "drizzle-orm";
-import { drizzle, integer, text, YdbDialect, YdbSession, ydbTable } from "../../src/index.js";
+import { customType, drizzle, integer, text, YdbDialect, YdbSession, ydbTable } from "../../src/index.js";
 import { orderSelectedFields } from "../../src/ydb-core/result-mapping.js";
 
 const dialect = new YdbDialect();
@@ -106,6 +106,56 @@ test("prepared get", async () => {
   );
 
   assert.deepEqual(await prepared.get(), { id: 1, name: "Pinkie Pie" });
+});
+
+test("prepared rows decode object results with column codecs", async () => {
+  const slugType = customType<{ data: string; driverData: string }>({
+    dataType() {
+      return "Utf8";
+    },
+    fromDriver(value) {
+      return value.toLowerCase();
+    },
+  });
+  const customUsers = ydbTable("custom_users", {
+    id: integer("id").notNull(),
+    slug: slugType("slug").notNull(),
+  });
+  const fields = orderSelectedFields({ id: customUsers.id, slug: customUsers.slug });
+  const session = new YdbSession({
+    async execute() {
+      return { rows: [{ id: 1, slug: "RAINBOW-DASH" }] };
+    },
+  }, dialect);
+
+  const prepared = session.prepareQuery(sql.raw("select 1"), fields, undefined, false);
+
+  assert.deepEqual(await prepared.all(), [{ id: 1, slug: "rainbow-dash" }]);
+});
+
+test("prepareQuery passes ordered rows and mapColumnValue to customResultMapper", async () => {
+  const fields = orderSelectedFields({ id: users.id, name: users.name });
+  const session = new YdbSession({
+    async execute() {
+      return { rows: [{ id: 1, name: "Fluttershy" }] };
+    },
+  }, dialect);
+
+  const prepared = session.prepareQuery(
+    sql.raw("select 1"),
+    fields,
+    undefined,
+    false,
+    (rows, mapColumnValue) => ({
+      rows,
+      mapped: mapColumnValue?.("Fluttershy"),
+    }),
+  );
+
+  assert.deepEqual(await prepared.execute(), {
+    rows: [[1, "Fluttershy"]],
+    mapped: "Fluttershy",
+  });
 });
 
 test("session helpers", async () => {

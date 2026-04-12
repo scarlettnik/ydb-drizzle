@@ -6,7 +6,7 @@ import type { QueryWithTypings, SQL, SQLWrapper } from "drizzle-orm/sql/sql";
 import type { YdbDialect } from "../ydb/dialect.js";
 import type { YdbExecuteOptions, YdbExecutor, YdbTransactionalExecutor } from "../ydb/driver.js";
 import type { YdbTransactionConfig } from "../ydb/driver.js";
-import { mapResultRow, type YdbSelectedFieldsOrdered } from "./result-mapping.js";
+import { mapResultRow, rowToArray, type YdbSelectedFieldsOrdered } from "./result-mapping.js";
 import type {
   YdbSchemaDefinition,
   YdbSchemaRelations,
@@ -28,6 +28,7 @@ export interface YdbSessionOptions {
 type SelectedFieldsOrdered = YdbSelectedFieldsOrdered;
 
 export type YdbQuerySource = SQL | SQLWrapper | QueryWithTypings;
+export type YdbBatchQuery = YdbQuerySource | YdbPreparedQuery | YdbRunnablePreparedQuery;
 
 type YdbRunnablePreparedQuery = {
   prepare(name?: string): Pick<YdbPreparedQuery, "execute" | "all" | "get" | "values">;
@@ -37,8 +38,8 @@ function isQueryWithTypings(query: YdbQuerySource): query is QueryWithTypings {
   return "sql" in query && "params" in query && Array.isArray(query.params);
 }
 
-function isRunnablePreparedQuery(query: YdbQuerySource): query is SQLWrapper & YdbRunnablePreparedQuery {
-  return "prepare" in query && typeof query.prepare === "function";
+function isRunnablePreparedQuery(query: unknown): query is SQLWrapper & YdbRunnablePreparedQuery {
+  return !!query && typeof query === "object" && "prepare" in query && typeof query.prepare === "function";
 }
 
 function supportsTransactions(client: YdbExecutor | YdbTransactionalExecutor): client is YdbTransactionalExecutor {
@@ -93,14 +94,18 @@ export class YdbPreparedQuery<T extends YdbPreparedQueryConfig = YdbPreparedQuer
     }
 
     if (this.customResultMapper) {
-      return this.customResultMapper(response as unknown[][]);
+      const rows = this.fields
+        ? response.map((row) => rowToArray(this.fields as any, row as any))
+        : response as unknown[][];
+      return this.customResultMapper(rows as unknown[][], (value) => value);
     }
 
     if (!this.fields) {
       return response;
     }
 
-    return (response as unknown[][]).map((row) => mapResultRow(this.fields as any, row, undefined));
+    return (response as Array<unknown[] | Record<string, unknown>>)
+      .map((row) => mapResultRow(this.fields as any, row, undefined));
   }
 
   private async run(
@@ -206,6 +211,26 @@ export class YdbSession {
     }
 
     return this.prepareQuery<YdbPreparedQueryConfig & { values: T[] }>(query, undefined, undefined, true).values();
+  }
+
+  async batch<T extends readonly YdbBatchQuery[]>(queries: T): Promise<{ [K in keyof T]: unknown }> {
+    const results: unknown[] = [];
+
+    for (const query of queries) {
+      if (query instanceof YdbPreparedQuery) {
+        results.push(await query.execute());
+        continue;
+      }
+
+      if (isRunnablePreparedQuery(query)) {
+        results.push(await query.prepare().execute());
+        continue;
+      }
+
+      results.push(await this.execute(query as YdbQuerySource));
+    }
+
+    return results as { [K in keyof T]: unknown };
   }
 
   async count(query: YdbQuerySource): Promise<number> {

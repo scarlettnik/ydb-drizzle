@@ -50,6 +50,22 @@ export function getTableConfig(table: YdbTableWithColumns): YdbTableRuntimeConfi
     }
   }
 
+  for (const column of columns) {
+    if (!column.isUnique) {
+      continue;
+    }
+
+    const hasTableLevelDuplicate = uniqueConstraints.some((constraint) =>
+      constraint.config.columns.length === 1 && constraint.config.columns[0] === column,
+    );
+
+    if (hasTableLevelDuplicate) {
+      continue;
+    }
+
+    uniqueConstraints.push(new YdbUniqueConstraintBuilder(column.uniqueName, [column]).build(table));
+  }
+
   return {
     name: (table as any)[drizzleTableSymbol.Name] as string,
     columns,

@@ -4,7 +4,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { sql } from "drizzle-orm";
-import { index, integer, migrate, text, type YdbInlineMigration, ydbTable } from "../../src/index.js";
+import { buildCreateTableSql, index, integer, migrate, text, type YdbInlineMigration, ydbTable } from "../../src/index.js";
 import { createLiveContext } from "./helpers/context.js";
 
 const live = createLiveContext();
@@ -206,5 +206,35 @@ test("folder migrate accepts drizzle journal/sql format on live YDB", async (t) 
     rmSync(tempDir, { recursive: true, force: true });
     await live.db.execute(sql.raw(`DROP TABLE IF EXISTS \`${tableName}\``));
     await live.db.execute(sql.raw(`DROP TABLE IF EXISTS \`${migrationTableName}\``));
+  }
+});
+
+test("inline unique column constraints work on live YDB", async (t) => {
+  if (!live.requireLiveYdb(t)) return;
+  live.describeDbChange(t, "create a temp table with inline unique() metadata, verify duplicate values are rejected by YDB, then drop the temp table");
+
+  const suffix = live.baseIntId + 701;
+  const tableName = `unique_users_${suffix}`;
+  const users = ydbTable(tableName, {
+    id: integer("id").notNull().primaryKey(),
+    email: text("email").notNull().unique(),
+  });
+
+  await live.db.execute(sql.raw(`DROP TABLE IF EXISTS \`${tableName}\``));
+
+  try {
+    await live.db.execute(sql.raw(buildCreateTableSql(users, { ifNotExists: true })));
+    await live.db.execute(sql.raw(`INSERT INTO \`${tableName}\` (\`id\`, \`email\`) VALUES (1, 'rarity@example.com')`));
+
+    await assert.rejects(
+      () => live.db.execute(sql.raw(`INSERT INTO \`${tableName}\` (\`id\`, \`email\`) VALUES (2, 'rarity@example.com')`)),
+    );
+
+    const rows = await live.db.values<[number, string]>(
+      sql.raw(`SELECT \`id\`, \`email\` FROM \`${tableName}\` ORDER BY \`id\``),
+    );
+    assert.deepEqual(rows, [[1, "rarity@example.com"]]);
+  } finally {
+    await live.db.execute(sql.raw(`DROP TABLE IF EXISTS \`${tableName}\``));
   }
 });

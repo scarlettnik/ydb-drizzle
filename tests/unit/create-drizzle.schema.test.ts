@@ -30,6 +30,10 @@ const schema = {
 
 test("schema", async () => {
   const executedQueries: string[] = [];
+  const buildObjectRows = (query: string, values: unknown[]) => {
+    const aliases = Array.from(query.matchAll(/ as `([^`]+)`/g), (match) => match[1]!);
+    return [Object.fromEntries(aliases.map((alias, index) => [alias, values[index]]))];
+  };
 
   const db = drizzle({
     async execute(query, _params, _method, options) {
@@ -39,7 +43,7 @@ test("schema", async () => {
         return {
           rows: options?.arrayMode
             ? [[1, "Twilight Sparkle"]]
-            : [{ id: 1, name: "Twilight Sparkle" }],
+            : buildObjectRows(query, [1, "Twilight Sparkle"]),
         };
       }
 
@@ -69,7 +73,7 @@ test("schema", async () => {
   assert.deepEqual(first, { id: 1, name: "Twilight Sparkle" });
   assert.deepEqual(firstViaGet, { id: 1, name: "Twilight Sparkle" });
   assert.equal(executedQueries.length, 3);
-  assert.match(executedQueries[0] ?? "", /^select `users`\.`id`, `users`\.`name` from `users`$/);
-  assert.match(executedQueries[1] ?? "", /^select `users`\.`id`, `users`\.`name` from `users` where `users`\.`id` = \$p0 limit \$p1$/);
-  assert.match(executedQueries[2] ?? "", /^select `users`\.`id`, `users`\.`name` from `users` where `users`\.`id` = \$p0 limit \$p1$/);
+  assert.match(executedQueries[0] ?? "", /^select `users`\.`id` as `__ydb_c0`, `users`\.`name` as `__ydb_c1` from `users` `users`$/);
+  assert.match(executedQueries[1] ?? "", /^select `users`\.`id` as `__ydb_c0`, `users`\.`name` as `__ydb_c1` from `users` `users` where `users`\.`id` = \$p0 limit \$p1$/);
+  assert.match(executedQueries[2] ?? "", /^select `users`\.`id` as `__ydb_c0`, `users`\.`name` as `__ydb_c1` from `users` `users` where `users`\.`id` = \$p0 limit \$p1$/);
 });

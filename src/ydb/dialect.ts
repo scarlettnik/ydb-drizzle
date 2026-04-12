@@ -1,4 +1,4 @@
-import { aliasedTable, aliasedTableColumn, mapColumnsInSQLToAlias } from "drizzle-orm/alias";
+import { aliasedTable, aliasedTableColumn, mapColumnsInAliasedSQLToAlias, mapColumnsInSQLToAlias } from "drizzle-orm/alias";
 import { CasingCache } from "drizzle-orm/casing";
 import { Column } from "drizzle-orm/column";
 import { entityKind, is } from "drizzle-orm/entity";
@@ -9,6 +9,7 @@ import { and } from "drizzle-orm/sql/expressions";
 import type { Casing } from "drizzle-orm/utils";
 import type { YdbSession } from "../ydb-core/session.js";
 import type { YdbSelectedFieldsOrdered } from "../ydb-core/result-mapping.js";
+import type { YdbColumn } from "../ydb-core/columns/common.js";
 import { buildMigrationHistoryInsertSql, buildMigrationHistorySelectSql, buildMigrationTableBootstrapSql } from "./migration-ddl.js";
 import {
   getSelectionAliases,
@@ -185,7 +186,9 @@ export class YdbDialect {
   }
 
   buildSelectQuery(config: YdbSelectConfig) {
-    return buildSelectQuery(config);
+    const withSql = this.buildWithCTE(config.withList);
+    const query = buildSelectQuery(config);
+    return withSql ? sql`${withSql}${query}` : query;
   }
 
   buildInsertQuery(config: YdbInsertConfig): SQL {
@@ -254,6 +257,16 @@ export class YdbDialect {
 
   buildDeleteQuery(config: YdbDeleteConfig): SQL {
     const withSql = this.buildWithCTE(config.withList);
+    if (config.using && config.using.length > 0) {
+      const usingSql = sql.join(
+        config.using.map((table) => sql`${this.buildFromTable(table)}`),
+        sql`, `,
+      );
+      const existsWhereSql = config.where ? sql` where ${config.where}` : undefined;
+
+      return sql`${withSql}delete from ${this.buildFromTable(config.table)} where exists (select 1 from ${usingSql}${existsWhereSql})`;
+    }
+
     const whereSql = config.where ? sql` where ${config.where}` : undefined;
 
     return sql`${withSql}delete from ${this.buildFromTable(config.table)}${whereSql}`;
@@ -271,6 +284,7 @@ export class YdbDialect {
     let limit: number | undefined;
     let offset: number | undefined;
     let selectedColumns: string[] = [];
+    const selectedExtras: Array<{ tsKey: string; field: SQL.Aliased }> = [];
 
     const aliasedColumns = Object.fromEntries(
       Object.entries(tableConfig.columns).map(([key, value]) => [key, aliasedTableColumn(value, tableAlias)]),
@@ -308,6 +322,19 @@ export class YdbDialect {
         selectedColumns = Object.keys(tableConfig.columns);
       }
 
+      if (config.extras) {
+        const extras = typeof config.extras === "function"
+          ? config.extras(aliasedColumns as Record<string, Column>, { sql })
+          : config.extras;
+
+        for (const [tsKey, value] of Object.entries(extras)) {
+          selectedExtras.push({
+            tsKey,
+            field: mapColumnsInAliasedSQLToAlias(value, tableAlias) as SQL.Aliased,
+          });
+        }
+      }
+
       let orderByOrig = typeof config.orderBy === "function"
         ? config.orderBy(aliasedColumns, getOrderByOperators())
         : config.orderBy ?? [];
@@ -330,29 +357,49 @@ export class YdbDialect {
         limit = config.limit;
       }
 
-      if (config.offset !== undefined) {
-        if (!isNumberValue(config.offset)) {
+      const offsetValue = "offset" in config ? config.offset : undefined;
+      if (offsetValue !== undefined) {
+        if (!isNumberValue(offsetValue)) {
           throw new Error("YDB relational query offset must be a finite number");
         }
-        offset = config.offset;
+        offset = offsetValue;
       }
     }
 
-    if (selectedColumns.length === 0) {
+    if (selectedColumns.length === 0 && selectedExtras.length === 0) {
+      selectedColumns = tableConfig.primaryKey.length > 0
+        ? tableConfig.primaryKey
+          .map((column) => Object.entries(tableConfig.columns).find(([, value]) => value === column)?.[0])
+          .filter((value): value is string => !!value)
+        : Object.keys(tableConfig.columns).slice(0, 1);
+    }
+
+    if (selectedColumns.length === 0 && selectedExtras.length === 0) {
       throw new DrizzleError({ message: `No fields selected for table "${tableConfig.tsName}" ("${tableAlias}")` });
     }
 
-    const selection = selectedColumns.map((field) => {
-      const column = tableConfig.columns[field]!;
-      return {
-        dbKey: column.name,
-        tsKey: field,
-        field: aliasedTableColumn(column, tableAlias),
+    const selection = [
+      ...selectedColumns.map((field) => {
+        const column = tableConfig.columns[field]!;
+        return {
+          dbKey: column.name,
+          tsKey: field,
+          field: aliasedTableColumn(column, tableAlias) as unknown as YdbColumn,
+          relationTableTsKey: undefined,
+          isJson: false,
+          selection: [],
+        };
+      }),
+      ...selectedExtras.map(({ tsKey, field }) => ({
+        dbKey: field.fieldAlias,
+        tsKey,
+        field,
         relationTableTsKey: undefined,
         isJson: false,
+        isExtra: true,
         selection: [],
-      };
-    });
+      })),
+    ];
 
     const result = this.buildSelectQuery({
       table: aliasedTable(table, tableAlias),

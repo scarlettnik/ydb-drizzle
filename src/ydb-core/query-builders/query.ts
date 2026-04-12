@@ -1,19 +1,32 @@
-import { entityKind } from "drizzle-orm/entity";
 import {
+  aliasedTable,
+  aliasedTableColumn,
+  mapColumnsInAliasedSQLToAlias,
+  mapColumnsInSQLToAlias,
+} from "drizzle-orm/alias";
+import { Column } from "drizzle-orm/column";
+import { entityKind, is } from "drizzle-orm/entity";
+import {
+  Many,
+  One,
   getOperators,
   getOrderByOperators,
+  normalizeRelation,
   type BuildQueryResult,
   type DBQueryConfig,
+  type Relation,
   type TableRelationalConfig,
   type TablesRelationalConfig,
 } from "drizzle-orm/relations";
 import { QueryPromise } from "drizzle-orm/query-promise";
+import { and, eq, inArray, or } from "drizzle-orm/sql/expressions";
 import { sql, type SQL, type SQLWrapper } from "drizzle-orm/sql/sql";
+import { getTableUniqueName } from "drizzle-orm/table";
 import type { KnownKeysOnly, ValueOrArray } from "drizzle-orm/utils";
-import { mapResultRow, orderSelectedFields } from "../result-mapping.js";
+import type { YdbDialect } from "../../ydb/dialect.js";
 import type { YdbPreparedQueryConfig, YdbSession } from "../session.js";
-import type { YdbTable } from "../table.js";
 import type { YdbColumn } from "../columns/common.js";
+import type { YdbTable } from "../table.js";
 
 function toArray<T>(value: ValueOrArray<T> | undefined): T[] {
   if (value === undefined) {
@@ -27,90 +40,179 @@ function isNumberValue(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value);
 }
 
+function dedupeColumns(columns: YdbColumn[]): YdbColumn[] {
+  const seen = new Set<YdbColumn>();
+  const result: YdbColumn[] = [];
+
+  for (const column of columns) {
+    if (seen.has(column)) {
+      continue;
+    }
+
+    seen.add(column);
+    result.push(column);
+  }
+
+  return result;
+}
+
+function encodeTuplePart(value: unknown): string {
+  if (typeof value === "bigint") {
+    return `bigint:${value.toString()}`;
+  }
+
+  if (value instanceof Date) {
+    return `date:${value.toISOString()}`;
+  }
+
+  if (value instanceof Uint8Array) {
+    return `bytes:${Buffer.from(value).toString("base64")}`;
+  }
+
+  if (value === null) {
+    return "null:";
+  }
+
+  if (value === undefined) {
+    return "undefined:";
+  }
+
+  return `${typeof value}:${String(value)}`;
+}
+
+function getTupleKey(values: unknown[]): string {
+  return values.map((value) => encodeTuplePart(value)).join("|");
+}
+
 type YdbRelationalManyConfig<
   TSchema extends TablesRelationalConfig,
   TFields extends TableRelationalConfig,
-> = {
-  columns?: DBQueryConfig<"many", true, TSchema, TFields>["columns"];
-  where?: DBQueryConfig<"many", true, TSchema, TFields>["where"];
-  orderBy?: DBQueryConfig<"many", true, TSchema, TFields>["orderBy"];
-  limit?: number;
-  offset?: number;
-};
+> = DBQueryConfig<"many", true, TSchema, TFields>;
 
 type YdbRelationalFirstConfig<
   TSchema extends TablesRelationalConfig,
   TFields extends TableRelationalConfig,
-> = Omit<YdbRelationalManyConfig<TSchema, TFields>, "limit"> & {
-  limit?: never;
+> = Omit<DBQueryConfig<"many", true, TSchema, TFields>, "limit">;
+
+type YdbRelationalAnyConfig = DBQueryConfig<"many", boolean>;
+
+type YdbVisibleSelectionEntry = {
+  tsKey: string;
+  alias: string;
+  field: SQLWrapper;
 };
 
-type YdbRelationalAnyConfig = {
-  columns?: DBQueryConfig<"many", true>["columns"];
-  where?: DBQueryConfig<"many", true>["where"];
-  orderBy?: DBQueryConfig<"many", true>["orderBy"];
-  limit?: number;
-  offset?: number;
+type YdbSelectedRelation = {
+  tsKey: string;
+  relation: Relation;
+  relationTableTsName: string;
+  queryConfig: true | DBQueryConfig<"many", false>;
+  normalizedRelation: ReturnType<typeof normalizeRelation>;
 };
 
-function getSelectedFields(
+type YdbFlatQueryPlan = {
+  sql: SQL;
+  tableAlias: string;
+  columnEntries: YdbVisibleSelectionEntry[];
+  extraEntries: YdbVisibleSelectionEntry[];
+  hiddenColumnAliases: Map<YdbColumn, string>;
+  selectedRelations: YdbSelectedRelation[];
+};
+
+type YdbExecutedLevel = {
+  plan: YdbFlatQueryPlan;
+  rows: Array<Record<string, unknown>>;
+  values: Array<Record<string, unknown>>;
+};
+
+type YdbExecuteLevelOptions = {
+  table: YdbTable;
+  tableConfig: TableRelationalConfig;
+  config: YdbRelationalAnyConfig;
+  tableAlias: string;
+  requiredColumns?: YdbColumn[];
+  extraWhere?: SQL;
+  applyLimit?: boolean;
+  applyOffset?: boolean;
+};
+
+function getSelectedColumnKeys(
   tableConfig: TableRelationalConfig,
-  config: YdbRelationalAnyConfig | true,
-): Record<string, YdbColumn> {
-  const columns = tableConfig.columns as Record<string, YdbColumn>;
-
-  if (config === true || !config.columns) {
-    return columns;
+  config: YdbRelationalAnyConfig,
+): string[] {
+  if (!config.columns) {
+    return Object.keys(tableConfig.columns);
   }
 
-  const explicitTrueEntries = Object.entries(config.columns).filter(([, include]) => include === true);
-  if (explicitTrueEntries.length > 0) {
-    return Object.fromEntries(
-      explicitTrueEntries.flatMap(([key]) => (key in columns ? [[key, columns[key]!]] : [])),
-    );
+  const explicitEntries = Object.entries(config.columns).filter(([key, include]) => key in tableConfig.columns && include !== undefined);
+  const includeKeys = explicitEntries
+    .filter(([, include]) => include === true)
+    .map(([key]) => key);
+
+  if (includeKeys.length > 0) {
+    return includeKeys;
   }
 
-  return Object.fromEntries(
-    Object.entries(columns).filter(([key]) => config.columns?.[key] !== false),
+  const excludeKeys = new Set(
+    explicitEntries
+      .filter(([, include]) => include === false)
+      .map(([key]) => key),
   );
+
+  return Object.keys(tableConfig.columns).filter((key) => !excludeKeys.has(key));
+}
+
+function getAliasedColumns(
+  tableConfig: TableRelationalConfig,
+  tableAlias: string,
+): Record<string, Column> {
+  return Object.fromEntries(
+    Object.entries(tableConfig.columns).map(([key, value]) => [key, aliasedTableColumn(value, tableAlias)]),
+  ) as Record<string, Column>;
 }
 
 function getWhereClause(
   tableConfig: TableRelationalConfig,
-  config: YdbRelationalAnyConfig | true,
+  config: YdbRelationalAnyConfig,
+  tableAlias: string,
 ): SQL | undefined {
-  if (config === true || config.where === undefined) {
+  if (config.where === undefined) {
     return undefined;
   }
 
-  if (typeof config.where === "function") {
-    return config.where(tableConfig.columns as Record<string, YdbColumn>, getOperators());
-  }
+  const aliasedColumns = getAliasedColumns(tableConfig, tableAlias);
+  const whereSql = typeof config.where === "function"
+    ? config.where(aliasedColumns as Record<string, YdbColumn>, getOperators())
+    : config.where;
 
-  return config.where;
+  return whereSql ? mapColumnsInSQLToAlias(whereSql, tableAlias) : undefined;
 }
 
 function getOrderByClause(
   tableConfig: TableRelationalConfig,
-  config: YdbRelationalAnyConfig | true,
+  config: YdbRelationalAnyConfig,
+  tableAlias: string,
 ): SQL[] {
-  if (config === true || config.orderBy === undefined) {
+  if (config.orderBy === undefined) {
     return [];
   }
 
+  const aliasedColumns = getAliasedColumns(tableConfig, tableAlias);
   const orderBy = typeof config.orderBy === "function"
-    ? config.orderBy(tableConfig.columns as Record<string, YdbColumn>, getOrderByOperators())
+    ? config.orderBy(aliasedColumns as Record<string, YdbColumn>, getOrderByOperators())
     : config.orderBy;
 
-  return toArray(orderBy).map((field) => sql`${field as SQLWrapper}`);
+  return toArray(orderBy).map((field) => {
+    if (is(field, Column)) {
+      return aliasedTableColumn(field, tableAlias) as unknown as SQL;
+    }
+
+    return mapColumnsInSQLToAlias(field as SQL, tableAlias);
+  });
 }
 
-function getLimitClause(config: YdbRelationalAnyConfig | true, mode: "many" | "first"): number | undefined {
-  if (mode === "first") {
-    return 1;
-  }
-
-  if (config === true || config.limit === undefined) {
+function getLimitClause(config: YdbRelationalAnyConfig): number | undefined {
+  if (config.limit === undefined) {
     return undefined;
   }
 
@@ -121,16 +223,59 @@ function getLimitClause(config: YdbRelationalAnyConfig | true, mode: "many" | "f
   return config.limit;
 }
 
-function getOffsetClause(config: YdbRelationalAnyConfig | true): number | undefined {
-  if (config === true || config.offset === undefined) {
+function getOffsetClause(config: YdbRelationalAnyConfig): number | undefined {
+  const offset = "offset" in config ? config.offset : undefined;
+  if (offset === undefined) {
     return undefined;
   }
 
-  if (!isNumberValue(config.offset)) {
+  if (!isNumberValue(offset)) {
     throw new Error("YDB relational query offset must be a finite number");
   }
 
-  return config.offset;
+  return offset;
+}
+
+function getExtrasSelection(
+  tableConfig: TableRelationalConfig,
+  config: YdbRelationalAnyConfig,
+  tableAlias: string,
+): Array<{ tsKey: string; field: SQL.Aliased }> {
+  if (!config.extras) {
+    return [];
+  }
+
+  const aliasedColumns = getAliasedColumns(tableConfig, tableAlias);
+  const extras = typeof config.extras === "function"
+    ? config.extras(aliasedColumns as Record<string, YdbColumn>, { sql })
+    : config.extras;
+
+  return Object.entries(extras).map(([tsKey, value]) => ({
+    tsKey,
+    field: mapColumnsInAliasedSQLToAlias(value, tableAlias) as SQL.Aliased,
+  }));
+}
+
+function buildRelationFilter(columns: YdbColumn[], tuples: unknown[][]): SQL {
+  if (columns.length === 0) {
+    throw new Error("YDB relational relation filter requires at least one column");
+  }
+
+  if (columns.length === 1) {
+    const column = columns[0]!;
+    const values = tuples.map(([value]) => value);
+    return values.length === 1 ? eq(column, values[0]) : inArray(column, values);
+  }
+
+  if (tuples.length === 1) {
+    return and(
+      ...columns.map((column, index) => eq(column, tuples[0]![index])),
+    )!;
+  }
+
+  return or(
+    ...tuples.map((tuple) => and(...columns.map((column, index) => eq(column, tuple[index])))),
+  )!;
 }
 
 export class YdbRelationalQueryBuilder<
@@ -145,6 +290,7 @@ export class YdbRelationalQueryBuilder<
     private readonly tableNamesMap: Record<string, string>,
     private readonly table: YdbTable,
     private readonly tableConfig: TFields,
+    private readonly dialect: YdbDialect,
     private readonly session: YdbSession,
   ) {}
 
@@ -157,8 +303,9 @@ export class YdbRelationalQueryBuilder<
       this.tableNamesMap,
       this.table,
       this.tableConfig,
+      this.dialect,
       this.session,
-      config ? (config as YdbRelationalAnyConfig) : true,
+      (config ?? {}) as YdbRelationalAnyConfig,
       "many",
     );
   }
@@ -172,8 +319,9 @@ export class YdbRelationalQueryBuilder<
       this.tableNamesMap,
       this.table,
       this.tableConfig,
+      this.dialect,
       this.session,
-      config ? (config as YdbRelationalAnyConfig) : true,
+      { ...((config ?? {}) as YdbRelationalAnyConfig), limit: 1 },
       "first",
     );
   }
@@ -188,67 +336,323 @@ export class YdbRelationalQuery<TResult> extends QueryPromise<TResult> {
   };
 
   constructor(
-    private readonly _fullSchema: Record<string, unknown>,
-    private readonly _schema: TablesRelationalConfig,
-    private readonly _tableNamesMap: Record<string, string>,
+    private readonly fullSchema: Record<string, unknown>,
+    private readonly schema: TablesRelationalConfig,
+    private readonly tableNamesMap: Record<string, string>,
     private readonly table: YdbTable,
     private readonly tableConfig: TableRelationalConfig,
+    private readonly dialect: YdbDialect,
     private readonly session: YdbSession,
-    private readonly config: YdbRelationalAnyConfig | true,
+    private readonly config: YdbRelationalAnyConfig,
     private readonly mode: "many" | "first",
   ) {
     super();
   }
 
-  private getSelectedFields(): Record<string, YdbColumn> {
-    const selectedFields = getSelectedFields(this.tableConfig, this.config);
-
-    if (Object.keys(selectedFields).length === 0) {
-      throw new Error("YDB relational query selected zero columns");
+  private getSelectedRelations(
+    tableConfig: TableRelationalConfig,
+    config: YdbRelationalAnyConfig,
+  ): YdbSelectedRelation[] {
+    if (!config.with) {
+      return [];
     }
 
-    return selectedFields;
+    return Object.entries(config.with).flatMap(([tsKey, queryConfig]) => {
+      if (!queryConfig) {
+        return [];
+      }
+
+      const relation = tableConfig.relations[tsKey];
+      if (!relation) {
+        throw new Error(`YDB relational query relation "${tableConfig.tsName}.${tsKey}" is missing`);
+      }
+
+      const relationTableTsName = this.tableNamesMap[getTableUniqueName(relation.referencedTable)];
+      if (!relationTableTsName) {
+        throw new Error(`YDB relational query table metadata for "${relation.referencedTableName}" is missing`);
+      }
+
+      return [{
+        tsKey,
+        relation,
+        relationTableTsName,
+        queryConfig: queryConfig as true | DBQueryConfig<"many", false>,
+        normalizedRelation: normalizeRelation(this.schema, this.tableNamesMap, relation),
+      }];
+    });
+  }
+
+  private buildFlatQueryPlan({
+    table,
+    tableConfig,
+    config,
+    tableAlias,
+    requiredColumns = [],
+    extraWhere,
+    applyLimit = true,
+    applyOffset = true,
+  }: YdbExecuteLevelOptions): YdbFlatQueryPlan {
+    const selectedRelations = this.getSelectedRelations(tableConfig, config);
+    const selectedColumnKeys = getSelectedColumnKeys(tableConfig, config);
+    const selectedExtras = getExtrasSelection(tableConfig, config, tableAlias);
+
+    const columnEntries = selectedColumnKeys.map((tsKey, index) => ({
+      tsKey,
+      alias: `__ydb_c${index}`,
+      field: aliasedTableColumn(tableConfig.columns[tsKey]!, tableAlias),
+    }));
+    const extraEntries = selectedExtras.map(({ tsKey, field }, index) => ({
+      tsKey,
+      alias: `__ydb_e${index}`,
+      field,
+    }));
+
+    const hiddenColumnAliases = new Map<YdbColumn, string>();
+    for (const entry of columnEntries) {
+      hiddenColumnAliases.set(tableConfig.columns[entry.tsKey] as YdbColumn, entry.alias);
+    }
+
+    const hiddenFields: Array<{ alias: string; field: SQLWrapper }> = [];
+    const hiddenColumns = dedupeColumns([
+      ...requiredColumns,
+      ...selectedRelations.flatMap(({ normalizedRelation }) => normalizedRelation.fields as YdbColumn[]),
+    ]);
+
+    let hiddenIndex = 0;
+    for (const column of hiddenColumns) {
+      if (hiddenColumnAliases.has(column)) {
+        continue;
+      }
+
+      const alias = `__ydb_h${hiddenIndex++}`;
+      hiddenColumnAliases.set(column, alias);
+      hiddenFields.push({
+        alias,
+        field: aliasedTableColumn(column, tableAlias),
+      });
+    }
+
+    const fields = [...columnEntries, ...extraEntries, ...hiddenFields];
+    if (fields.length === 0) {
+      throw new Error(`YDB relational query selected zero fields for "${tableConfig.tsName}"`);
+    }
+
+    const where = and(extraWhere, getWhereClause(tableConfig, config, tableAlias));
+    const orderBy = getOrderByClause(tableConfig, config, tableAlias);
+    const limit = applyLimit ? getLimitClause(config) : undefined;
+    const offset = applyOffset ? getOffsetClause(config) : undefined;
+
+    return {
+      sql: this.dialect.buildSelectQuery({
+        table: aliasedTable(table, tableAlias),
+        fields: {},
+        fieldsFlat: fields.map(({ field }) => ({ path: [], field })),
+        where,
+        joins: undefined,
+        orderBy,
+        groupBy: undefined,
+        having: undefined,
+        limit,
+        offset,
+        distinct: false,
+        distinctOn: undefined,
+        selectionAliases: fields.map(({ alias }) => alias),
+        setOperators: [],
+      }),
+      tableAlias,
+      columnEntries,
+      extraEntries,
+      hiddenColumnAliases,
+      selectedRelations,
+    };
+  }
+
+  private getColumnTuple(
+    row: Record<string, unknown>,
+    columns: YdbColumn[],
+    aliases: Map<YdbColumn, string>,
+  ): unknown[] {
+    return columns.map((column) => {
+      const alias = aliases.get(column);
+      if (!alias) {
+        throw new Error(`YDB relational query hidden alias for column "${column.name}" is missing`);
+      }
+
+      return row[alias];
+    });
+  }
+
+  private async executeLevel(options: YdbExecuteLevelOptions): Promise<YdbExecutedLevel> {
+    const plan = this.buildFlatQueryPlan(options);
+    const rows = await this.session.prepareQuery<
+      YdbPreparedQueryConfig & { execute: Array<Record<string, unknown>> }
+    >(plan.sql, undefined, undefined, false).execute();
+    const values = rows.map((row) => {
+      const result: Record<string, unknown> = {};
+
+      for (const entry of plan.columnEntries) {
+        result[entry.tsKey] = row[entry.alias];
+      }
+
+      for (const entry of plan.extraEntries) {
+        result[entry.tsKey] = row[entry.alias];
+      }
+
+      return result;
+    });
+
+    for (const relation of plan.selectedRelations) {
+      await this.hydrateRelation(plan, rows, values, relation);
+    }
+
+    return { plan, rows, values };
+  }
+
+  private async hydrateRelation(
+    parentPlan: YdbFlatQueryPlan,
+    parentRows: Array<Record<string, unknown>>,
+    parentValues: Array<Record<string, unknown>>,
+    relationSelection: YdbSelectedRelation,
+  ): Promise<void> {
+    const parentTuples = parentRows
+      .map((row) => this.getColumnTuple(
+        row,
+        relationSelection.normalizedRelation.fields as YdbColumn[],
+        parentPlan.hiddenColumnAliases,
+      ))
+      .filter((tuple) => tuple.every((value) => value !== null && value !== undefined));
+
+    if (parentTuples.length === 0) {
+      for (const parentValue of parentValues) {
+        parentValue[relationSelection.tsKey] = is(relationSelection.relation, One) ? null : [];
+      }
+      return;
+    }
+
+    const uniqueParentTuples = Array.from(
+      new Map(parentTuples.map((tuple) => [getTupleKey(tuple), tuple])),
+      ([, tuple]) => tuple,
+    );
+    const relationTableConfig = this.schema[relationSelection.relationTableTsName];
+    const relationTable = this.fullSchema[relationSelection.relationTableTsName] as YdbTable | undefined;
+
+    if (!relationTableConfig || !relationTable) {
+      throw new Error(`YDB relational query table "${relationSelection.relationTableTsName}" is missing`);
+    }
+
+    const relationConfig = relationSelection.queryConfig === true
+      ? {} as YdbRelationalAnyConfig
+      : relationSelection.queryConfig as YdbRelationalAnyConfig;
+    const relationFilter = buildRelationFilter(
+      relationSelection.normalizedRelation.references as YdbColumn[],
+      uniqueParentTuples,
+    );
+    const relationResult = await this.executeLevel({
+      table: relationTable,
+      tableConfig: relationTableConfig,
+      config: relationConfig,
+      tableAlias: `${parentPlan.tableAlias}_${relationSelection.tsKey}`,
+      requiredColumns: relationSelection.normalizedRelation.references as YdbColumn[],
+      extraWhere: relationFilter,
+      applyLimit: !is(relationSelection.relation, Many),
+      applyOffset: !is(relationSelection.relation, Many),
+    });
+
+    const groupedValues = new Map<string, Array<Record<string, unknown>>>();
+    for (const [index, row] of relationResult.rows.entries()) {
+      const key = getTupleKey(this.getColumnTuple(
+        row,
+        relationSelection.normalizedRelation.references as YdbColumn[],
+        relationResult.plan.hiddenColumnAliases,
+      ));
+      const existing = groupedValues.get(key);
+
+      if (existing) {
+        existing.push(relationResult.values[index]!);
+      } else {
+        groupedValues.set(key, [relationResult.values[index]!]);
+      }
+    }
+
+    const relationOffset = getOffsetClause(relationConfig) ?? 0;
+    const relationLimit = getLimitClause(relationConfig);
+
+    for (const [index, parentValue] of parentValues.entries()) {
+      const tuple = this.getColumnTuple(
+        parentRows[index]!,
+        relationSelection.normalizedRelation.fields as YdbColumn[],
+        parentPlan.hiddenColumnAliases,
+      );
+
+      if (tuple.some((value) => value === null || value === undefined)) {
+        parentValue[relationSelection.tsKey] = is(relationSelection.relation, One) ? null : [];
+        continue;
+      }
+
+      const relatedValues = groupedValues.get(getTupleKey(tuple)) ?? [];
+      if (is(relationSelection.relation, One)) {
+        parentValue[relationSelection.tsKey] = relatedValues[0] ?? null;
+        continue;
+      }
+
+      const sliced = relationLimit === undefined
+        ? relatedValues.slice(relationOffset)
+        : relatedValues.slice(relationOffset, relationOffset + relationLimit);
+      parentValue[relationSelection.tsKey] = sliced;
+    }
   }
 
   getSQL(): SQL {
-    const selectedFields = this.getSelectedFields();
-    const selection = sql.join(
-      Object.values(selectedFields).map((field) => sql`${field}`),
-      sql`, `,
-    );
-    const whereClause = getWhereClause(this.tableConfig, this.config);
-    const orderBy = getOrderByClause(this.tableConfig, this.config);
-    const limit = getLimitClause(this.config, this.mode);
-    const offset = getOffsetClause(this.config);
-
-    const whereSql = whereClause ? sql` where ${whereClause}` : undefined;
-    const orderBySql = orderBy.length > 0 ? sql` order by ${sql.join(orderBy, sql`, `)}` : undefined;
-    const limitSql = limit !== undefined ? sql` limit ${limit}` : undefined;
-    const offsetSql = offset !== undefined ? sql` offset ${offset}` : undefined;
-
-    return sql`select ${selection} from ${this.table}${whereSql}${orderBySql}${limitSql}${offsetSql}`;
+    return this.buildFlatQueryPlan({
+      table: this.table,
+      tableConfig: this.tableConfig,
+      config: this.config,
+      tableAlias: this.tableConfig.tsName,
+    }).sql;
   }
 
-  private getOrderedFields() {
-    return orderSelectedFields(this.getSelectedFields());
+  private async run(): Promise<TResult> {
+    const result = await this.executeLevel({
+      table: this.table,
+      tableConfig: this.tableConfig,
+      config: this.config,
+      tableAlias: this.tableConfig.tsName,
+    });
+
+    if (this.mode === "first") {
+      return result.values[0] as TResult | undefined as TResult;
+    }
+
+    return result.values as TResult;
   }
 
   prepare(name?: string) {
-    const orderedFields = this.getOrderedFields();
-    const customResultMapper = this.mode === "first"
-      ? (rows: unknown[][]) => {
-        const row = rows[0];
-        return (row ? mapResultRow(orderedFields, row) : undefined) as TResult;
-      }
-      : undefined;
+    const flatPrepared = this.session.prepareQuery(this.getSQL(), undefined, name, false);
+    const self = this;
 
-    return this.session.prepareQuery<YdbPreparedQueryConfig & { execute: TResult }>(
-      this.getSQL(),
-      orderedFields,
-      name,
-      true,
-      customResultMapper,
-    );
+    return {
+      getQuery() {
+        return flatPrepared.getQuery();
+      },
+      async execute() {
+        return self.run();
+      },
+      async all() {
+        const result = await self.run();
+        if (Array.isArray(result)) {
+          return result;
+        }
+
+        return result === undefined ? [] : [result];
+      },
+      async get() {
+        const result = await self.run();
+        return Array.isArray(result) ? result[0] : result;
+      },
+      async values() {
+        return flatPrepared.values();
+      },
+    };
   }
 
   toSQL() {
@@ -258,6 +662,6 @@ export class YdbRelationalQuery<TResult> extends QueryPromise<TResult> {
   }
 
   override execute(): Promise<TResult> {
-    return this.prepare().execute() as Promise<TResult>;
+    return this.run();
   }
 }

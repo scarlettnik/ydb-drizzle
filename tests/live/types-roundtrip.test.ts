@@ -1,8 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { createLiveContext } from "./helpers/context.js";
-import { typesTable } from "./helpers/schema.js";
+import { typesTable, typesTableName } from "./helpers/schema.js";
+import { orderSelectedFields } from "../../src/ydb-core/result-mapping.js";
 
 const live = createLiveContext();
 
@@ -104,6 +105,52 @@ test("types round-trip", async (t) => {
         ysonValue: Array.from(updatedYson),
       },
     );
+  } finally {
+    await live.deleteTypeRows([id]);
+  }
+});
+
+test("prepared query decodes typed object rows on live YDB", async (t) => {
+  if (!live.requireLiveYdb(t)) return;
+  live.describeDbChange(t, "insert one typed row, read it through session.prepareQuery() in object mode, verify field codecs, then clean it");
+
+  const id = live.baseUint64Id + 2n;
+  const timestampValue = new Date();
+  const bytesValue = Uint8Array.from(Buffer.from("prepared-bytes", "utf8"));
+  const jsonValue = { pony: "Starlight Glimmer", level: 11 };
+
+  await live.deleteTypeRows([id]);
+
+  try {
+    await live.db.insert(typesTable).values({
+      id,
+      bytesValue,
+      jsonValue,
+      timestampValue,
+    });
+
+    const fields = orderSelectedFields({
+      id: typesTable.id,
+      bytesValue: typesTable.bytesValue,
+      jsonValue: typesTable.jsonValue,
+      timestampValue: typesTable.timestampValue,
+    });
+    const prepared = live.db._.session.prepareQuery(
+      sql.raw(
+        `SELECT \`id\`, \`bytes_value\`, \`json_value\`, \`timestamp_value\` FROM \`${typesTableName}\` WHERE \`id\` = ${id.toString()}`,
+      ),
+      fields,
+      "live_types_prepared_object_mode",
+      false,
+    );
+    const row = await prepared.get() as Record<string, unknown>;
+
+    assert.equal(row.id, id);
+    assert.ok(row.bytesValue instanceof Uint8Array);
+    assert.deepEqual(Array.from(row.bytesValue as Uint8Array), Array.from(bytesValue));
+    assert.deepEqual(row.jsonValue, jsonValue);
+    assert.ok(row.timestampValue instanceof Date);
+    assert.equal((row.timestampValue as Date).toISOString(), timestampValue.toISOString());
   } finally {
     await live.deleteTypeRows([id]);
   }

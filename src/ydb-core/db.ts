@@ -3,8 +3,9 @@ import type {
   RelationalSchemaConfig,
   TablesRelationalConfig,
 } from "drizzle-orm/relations";
+import { type SQL, type SQLWrapper } from "drizzle-orm/sql/sql";
+import type { WithSubquery } from "drizzle-orm/subquery";
 import type { DrizzleTypeError } from "drizzle-orm/utils";
-import type { SQLWrapper } from "drizzle-orm/sql/sql";
 import type { YdbTransactionConfig } from "../ydb/driver.js";
 import type { YdbDialect } from "../ydb/dialect.js";
 import type { YdbSession } from "./session.js";
@@ -16,8 +17,10 @@ import type {
 } from "./schema.types.js";
 import type { YdbTable } from "./table.js";
 import {
+  YdbCountBuilder,
   YdbDeleteBuilder,
   YdbInsertBuilder,
+  YdbQueryBuilder,
   YdbRelationalQueryBuilder,
   YdbSelectBuilder,
   YdbUpdateBuilder,
@@ -99,6 +102,7 @@ export class YdbDatabase<
           this._.tableNamesMap,
           table,
           tableConfig,
+          this.dialect,
           this.session,
         );
       }
@@ -121,6 +125,56 @@ export class YdbDatabase<
     return this.session.values<T>(query);
   }
 
+  $with<TAlias extends string>(alias: TAlias) {
+    return new YdbQueryBuilder(this.dialect).$with(alias);
+  }
+
+  with(...queries: WithSubquery[]) {
+    const self = this;
+
+    function select<TFields extends Record<string, unknown> | undefined = undefined>(fields?: TFields) {
+      return new YdbSelectBuilder(self.session, self.dialect, fields as any, {}, queries);
+    }
+
+    function selectDistinct<TFields extends Record<string, unknown> | undefined = undefined>(fields?: TFields) {
+      return new YdbSelectBuilder(self.session, self.dialect, fields as any, { distinct: true }, queries);
+    }
+
+    function selectDistinctOn<TFields extends Record<string, unknown> | undefined = undefined>(
+      on: SQLWrapper | SQLWrapper[],
+      fields?: TFields,
+    ) {
+      return new YdbSelectBuilder(self.session, self.dialect, fields as any, {
+        distinctOn: Array.isArray(on) ? on : [on],
+      }, queries);
+    }
+
+    function insert(table: YdbTable) {
+      return new YdbInsertBuilder(table, self.session, self.dialect, queries);
+    }
+
+    function update(table: YdbTable) {
+      return new YdbUpdateBuilder(table, self.session, self.dialect, queries);
+    }
+
+    function delete_(table: YdbTable) {
+      return new YdbDeleteBuilder(table, self.session, self.dialect, queries);
+    }
+
+    return {
+      select,
+      selectDistinct,
+      selectDistinctOn,
+      insert,
+      update,
+      delete: delete_,
+    };
+  }
+
+  $count(source: YdbTable | SQLWrapper, filters?: SQL) {
+    return new YdbCountBuilder({ source, filters, session: this.session });
+  }
+
   select<TFields extends Record<string, unknown> | undefined = undefined>(fields?: TFields) {
     return new YdbSelectBuilder(this.session, this.dialect, fields as any);
   }
@@ -139,15 +193,15 @@ export class YdbDatabase<
   }
 
   insert(table: YdbTable) {
-    return new YdbInsertBuilder(table, this.session);
+    return new YdbInsertBuilder(table, this.session, this.dialect);
   }
 
   update(table: YdbTable) {
-    return new YdbUpdateBuilder(table, this.session);
+    return new YdbUpdateBuilder(table, this.session, this.dialect);
   }
 
   delete(table: YdbTable) {
-    return new YdbDeleteBuilder(table, this.session);
+    return new YdbDeleteBuilder(table, this.session, this.dialect);
   }
 
   transaction<T>(

@@ -5,10 +5,29 @@ import { sql } from "drizzle-orm";
 import { customType, integer, text, uuid, ydbTable, ydbTableCreator } from "../../src/index.js";
 import { getYdbColumnBuilders, ydbColumnBuilders } from "../../src/ydb-core/columns/all.js";
 import { YdbColumn } from "../../src/ydb-core/columns/common.js";
+import { getTableConfig } from "../../src/ydb-core/table.utils.js";
+
+type Equal<A, B> =
+  (<T>() => T extends A ? 1 : 2) extends
+  (<T>() => T extends B ? 1 : 2)
+    ? true
+    : false;
+
+type Assert<T extends true> = T;
 
 const typedTable = ydbTable("typed_table", {
+  id: integer("id").notNull().$type<1 | 2>(),
   payload: text("payload").$type<{ pony: string }>(),
+  meta: text("meta").notNull().$type<{ level: number }>(),
 });
+
+type _typedColumnId = Assert<Equal<typeof typedTable.id["_"]["data"], 1 | 2>>;
+type _typedColumnPayload = Assert<Equal<typeof typedTable.payload["_"]["data"], { pony: string }>>;
+type _typedSelectId = Assert<Equal<typeof typedTable.$inferSelect.id, 1 | 2>>;
+type _typedSelectPayload = Assert<Equal<typeof typedTable.$inferSelect.payload, { pony: string } | null>>;
+type _typedSelectMeta = Assert<Equal<typeof typedTable.$inferSelect.meta, { level: number }>>;
+type _typedInsertPayload = Assert<Equal<Exclude<typeof typedTable.$inferInsert.payload, undefined>, { pony: string } | null>>;
+
 void typedTable;
 
 test("table columns", () => {
@@ -70,15 +89,13 @@ test("column builders", () => {
 });
 
 test("column builder metadata", () => {
-  const generatedSql = sql`lower(name)`;
   const table = ydbTable("builder_columns", {
     id: integer("id")
       .notNull()
       .default(1)
       .$defaultFn(() => 2)
       .$onUpdateFn(() => 3)
-      .primaryKey()
-      .generatedAlwaysAs(() => generatedSql),
+      .primaryKey(),
     plain: text("plain"),
   });
 
@@ -90,14 +107,17 @@ test("column builder metadata", () => {
   assert.equal(idColumn.defaultFn?.(), 2);
   assert.equal(idColumn.onUpdateFn?.(), 3);
   assert.equal(idColumn.primary, true);
-  assert.equal((idColumn as any).generated.type, "always");
-  assert.equal((idColumn as any).generated.mode, "virtual");
-  assert.equal(typeof (idColumn as any).generated.as, "function");
-  assert.equal((idColumn as any).generated.as(), generatedSql);
   assert.equal(plainColumn.getSQLType(), "Utf8");
   assert.equal((new YdbColumn(table, (plainColumn as any).config)).getSQLType(), "unknown");
   assert.equal(plainColumn.mapToDriverValue("Rarity"), "Rarity");
   assert.equal(plainColumn.mapFromDriverValue("Rarity"), "Rarity");
+});
+
+test("generatedAlwaysAs is rejected for YDB columns", () => {
+  assert.throws(
+    () => integer("id").generatedAlwaysAs(() => sql`1`),
+    /generatedAlwaysAs\(\) is not supported/u,
+  );
 });
 
 test("custom columns", () => {
@@ -131,4 +151,22 @@ test("custom columns", () => {
   assert.equal(table.upper.mapFromDriverValue("PINKIE"), "pinkie");
   assert.equal(table.configured.getSQLType(), "Utf8");
   assert.equal(table.configured.mapToDriverValue("dash"), "cfg:dash");
+});
+
+test("column unique metadata", () => {
+  const users = ydbTable("constraint_users", {
+    id: integer("id").notNull().primaryKey(),
+    email: text("email").notNull().unique(),
+    externalId: text("external_id").unique("constraint_users_external_unique"),
+  });
+
+  const usersConfig = getTableConfig(users);
+
+  assert.deepEqual(
+    usersConfig.uniqueConstraints.map((constraint) => constraint.config.name).sort(),
+    [
+      "constraint_users_email_unique",
+      "constraint_users_external_unique",
+    ],
+  );
 });

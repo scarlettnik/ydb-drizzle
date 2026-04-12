@@ -1,6 +1,7 @@
 import type {
   BuildRelationalQueryResult,
   DBQueryConfig,
+  Relation,
   TableRelationalConfig,
   TablesRelationalConfig,
 } from "drizzle-orm/relations";
@@ -39,6 +40,7 @@ export interface YdbSelectConfig {
   table: unknown;
   fields: Record<string, unknown>;
   fieldsFlat?: YdbSelectedFieldsOrdered;
+  withList?: Subquery[];
   joins?: YdbJoinConfig[];
   where?: SQL;
   groupBy?: SQLWrapper[];
@@ -69,16 +71,11 @@ export interface YdbUpdateConfig {
 export interface YdbDeleteConfig {
   table: YdbTable | SQLWrapper;
   where?: SQL;
+  using?: SQLWrapper[];
   withList?: Subquery[];
 }
 
-export interface YdbFlatRelationalQueryConfig {
-  columns?: DBQueryConfig<"many", true>["columns"];
-  where?: DBQueryConfig<"many", true>["where"];
-  orderBy?: DBQueryConfig<"many", true>["orderBy"];
-  limit?: number;
-  offset?: number;
-}
+export type YdbFlatRelationalQueryConfig = DBQueryConfig<"many", boolean>;
 
 export interface YdbRelationalQueryConfig {
   fullSchema: Record<string, unknown>;
@@ -89,6 +86,7 @@ export interface YdbRelationalQueryConfig {
   queryConfig: true | YdbFlatRelationalQueryConfig;
   tableAlias: string;
   joinOn?: SQL;
+  nestedQueryRelation?: Relation;
 }
 
 export type YdbRelationalQueryResult = BuildRelationalQueryResult<YdbTable, YdbColumn>;

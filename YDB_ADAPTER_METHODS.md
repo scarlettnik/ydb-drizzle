@@ -21,7 +21,6 @@
 - [x] YdbTxExecutor.execute(...)
 - [x] mapTransactionConfig(...)
 - [x] result shape now preserves `rowCount`, `command` and `meta`
-- [ ] replica / read-write split support
 - [x] mock driver helper
 
 ### 2. Dialect
@@ -59,8 +58,7 @@
 - [x] get(sql/sql-wrapper/query-builder)
 - [x] values(sql/sql-wrapper/query-builder)
 - [x] execution logger propagation from `drizzle({ logger })`
-- [ ] batch(queries)
-- [ ] cache-aware execution (withCache(...), cacheConfig)
+- [x] batch(queries)
 
 **Prepared query layer**
 - [x] YdbPreparedQuery
@@ -81,12 +79,12 @@
 - [x] insert(table)
 - [x] update(table)
 - [x] delete(table)
-- [ ] transaction(callback, config?) //НЕВЕРНАЯ ИНТЕГРАЦИЯ
-- [ ] $with(alias).as(...)
-- [ ] with(...ctes)
+- [x] transaction(callback, config?)
+- [x] $with(alias).as(...)
+- [x] with(...ctes)
 - [x] selectDistinct(fields?)
 - [x] selectDistinctOn(on, fields?)
-- [ ] $count(source, filters?)
+- [x] $count(source, filters?)
 - [x] query.<table>.findMany(...) for flat single-table schema-aware queries
 - [x] query.<table>.findFirst(...) for flat single-table schema-aware queries
 - [x] typed schema-aware query property
@@ -99,7 +97,6 @@
 **src/ydb-core/transaction.ts**
 - [x] constructor(dialect, session)
 - [x] rollback()
-- [ ] explicit transaction setup helper
 
 ### 6. Query Builders
 
@@ -137,8 +134,11 @@
 - [x] rejects unknown columns at runtime
 - [x] toSQL()
 - [x] prepare(name?)
-- [ ] select(selectQuery)
-- [ ] onDuplicateKeyUpdate(...)
+- [x] select(selectQuery)
+- [x] onDuplicateKeyUpdate(...) //adapter-side emulation on top of valid YDB `UPSERT INTO ... SELECT`
+- [ ] returning(...)
+- [ ] native `UPSERT INTO` builder
+- [ ] native `REPLACE INTO` builder
 
 **Update: src/ydb-core/query-builders/update.ts**
 - [x] constructor(table, session)
@@ -151,6 +151,8 @@
 - [x] rejects empty update sets
 - [x] toSQL()
 - [x] prepare(name?)
+- [ ] on(selectQuery) //YDB-native set-based `UPDATE ... ON`
+- [ ] returning(...)
 
 **Delete: src/ydb-core/query-builders/delete.ts**
 - [x] constructor(table, session)
@@ -159,38 +161,35 @@
 - [x] execute()
 - [x] toSQL()
 - [x] prepare(name?)
-- [ ] using(...)
+- [x] using(...) //adapter-side emulation via `where exists (...)`
+- [ ] on(selectQuery) //YDB-native set-based `DELETE ... ON`
+- [ ] returning(...)
 
 **Additional builders**
-- [ ] YdbRaw
-- [ ] YdbCountBuilder
-- [~] relational query builder for flat schema-aware `db.query.<table>` queries
-- [ ] generic QueryBuilder for CTE/subquery composition
+- [x] YdbCountBuilder
+- [x] relational query builder for schema-aware `db.query.<table>` queries, including nested `with`
+- [x] generic QueryBuilder for CTE/subquery composition
 
 ### 7. Tables, Columns, Constraints
 
 **src/ydb-core/table.ts**
 - [x] ydbTable(name, columns)
 - [x] ydbTableCreator(fn)
-- [ ] columns are attached, but extra config is currently just mirrored from columns
-- [ ] table extra config callback
-- [ ] schema support
-- [ ] aliasing helpers
-- [ ] proper constraint/index metadata storage
+- [x] columns are attached to the table instance
+- [x] table extra config callback
+- [x] constraint/index metadata storage for primary keys, unique constraints and indexes
 
 **src/ydb-core/columns/common.ts**
-- [~] `$type<T>()` exists on the builder API, but compile-time propagation through `ydbTable(...)` is currently incomplete; runtime builder chaining works, full typed-model preservation still needs table generic rework
+- [x] `$type<T>()` with compile-time propagation through `ydbTable(...)`
 - [x] notNull()
 - [x] default(value)
 - [x] $defaultFn(fn)
 - [x] $onUpdateFn(fn)
 - [x] primaryKey()
-- [x] generatedAlwaysAs(...)
 - [x] build(table)
 - [x] getSQLType()
-- [ ] YDB-specific builder methods for unique constraints
-- [ ] YDB-specific builder methods for references / foreign keys
-- [ ] mapToDriverValue(...) / mapFromDriverValue(...) for non-trivial custom types is now available via custom columns and type-specific codecs; whole-table `select().from(table)` now applies these decoders, but a full prepared-query/result-mapper layer is still missing
+- [x] YDB-specific builder methods for unique constraints
+- [x] mapToDriverValue(...) / mapFromDriverValue(...) across custom columns, whole-table selects, and prepared-query/result mapping
 
 **Exported column types**
 - [x] integer() / int()
@@ -221,14 +220,14 @@
 
 ### 8. Relations And Schema-Aware API
 
-- [ ] relations(table, config)
-- [ ] one(...)
-- [ ] many(...)
+- [x] relations(table, config)
+- [x] one(...)
+- [x] many(...)
 - [x] schema extraction from config.schema
-- [x] db.query.<table>.findMany(...) for flat single-table queries
-- [x] db.query.<table>.findFirst(...) for flat single-table queries
-- [ ] dialect relational SQL builder (buildRelationalQueryWithoutPK(...))
-- [ ] row mapping for relational selections
+- [x] db.query.<table>.findMany(...)
+- [x] db.query.<table>.findFirst(...)
+- [x] dialect relational SQL builder (buildRelationalQueryWithoutPK(...))
+- [x] row mapping for relational selections
 
 ### 9. Migrations
 
@@ -237,3 +236,4 @@
 - [x] SQL generation for table create/alter/drop
 - [x] index / constraint DDL generation
 - [x] integration contract with drizzle-kit or explicit adapter-side migrator
+- [ ] table options / partitioning / TTL / column-family DDL

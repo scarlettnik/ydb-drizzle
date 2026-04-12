@@ -34,6 +34,7 @@ export {
   type YdbSchemaWithoutTables,
 } from "./ydb-core/schema.types.js";
 export { union, unionAll, intersect, except } from "./ydb-core/query-builders/select.js";
+export { YdbCountBuilder, YdbQueryBuilder } from "./ydb-core/query-builders/index.js";
 export { index, uniqueIndex } from "./ydb-core/indexes.js";
 export { migrate, type YdbMigrateConfig, type YdbMigratorConfig } from "./ydb/migrator.js";
 export {
@@ -56,6 +57,7 @@ export {
   type YdbDrizzleDatabase,
   type YdbDrizzleOptions,
 } from "./ydb/createDrizzle.js";
+export { createMany as many, createOne as one, relations } from "drizzle-orm";
 export { ydbTable, ydbTableCreator, type YdbTable, type YdbTableFn } from "./ydb-core/table.js";
 export { customType } from "./ydb-core/columns/custom.js";
 export { integer, int } from "./ydb-core/columns/integer.js";
