@@ -17,8 +17,10 @@ import {
   normalizeSqlWrapperArray,
 } from "./select.utils.js";
 
+type SelectionCallback = (fields: any) => SQLWrapper | SQLWrapper[];
+
 export class YdbSelectBuilder<TResult = unknown[]> extends QueryPromise<TResult> implements YdbSetOperatorSource {
-  static readonly [entityKind] = "YdbSelectBuilder";
+  static override readonly [entityKind] = "YdbSelectBuilder";
 
   private readonly session: YdbSession | undefined;
   private readonly dialect: YdbDialect;
@@ -75,8 +77,8 @@ export class YdbSelectBuilder<TResult = unknown[]> extends QueryPromise<TResult>
     };
   }
 
-  private requireTable(): unknown {
-    if (!this.config.table) {
+  private requireTable(): unknown | undefined {
+    if (this.config.table === undefined && Object.keys(this.config.fields).length === 0) {
       throw new Error("Missing table in select().from()");
     }
 
@@ -232,7 +234,7 @@ export class YdbSelectBuilder<TResult = unknown[]> extends QueryPromise<TResult>
     return this;
   }
 
-  groupBy(...columns: SQLWrapper[] | [(fields: SelectFields) => SQLWrapper | SQLWrapper[]]): this {
+  groupBy(...columns: SQLWrapper[] | [SelectionCallback]): this {
     if (typeof columns[0] === "function") {
       const groupBy = columns[0](createSelectionProxy(this.config.fields, "alias"));
       this.config.groupBy = Array.isArray(groupBy) ? groupBy : [groupBy];
@@ -243,7 +245,7 @@ export class YdbSelectBuilder<TResult = unknown[]> extends QueryPromise<TResult>
     return this;
   }
 
-  orderBy(...columns: SQLWrapper[] | [(fields: SelectFields) => SQLWrapper | SQLWrapper[]]): this {
+  orderBy(...columns: SQLWrapper[] | [SelectionCallback]): this {
     const target = this.getTargetConfigForTailClauses();
 
     if (typeof columns[0] === "function") {
@@ -282,7 +284,9 @@ export class YdbSelectBuilder<TResult = unknown[]> extends QueryPromise<TResult>
       throw new Error("YDB select() cannot combine distinct() and distinctOn()");
     }
 
-    const resolved = normalizeSqlWrapperArray(values[0] as SQLWrapper[] | SQLWrapper | undefined);
+    const resolved = Array.isArray(values[0])
+      ? normalizeSqlWrapperArray(values[0] as SQLWrapper[])
+      : normalizeSqlWrapperArray(values as SQLWrapper[]);
     if (!resolved || resolved.length === 0) {
       throw new Error("YDB distinctOn() requires at least one expression");
     }
@@ -296,6 +300,11 @@ export class YdbSelectBuilder<TResult = unknown[]> extends QueryPromise<TResult>
   rightJoin = this.createJoin("right");
   fullJoin = this.createJoin("full");
   crossJoin = this.createJoin("cross");
+  leftSemiJoin = this.createJoin("left semi");
+  rightSemiJoin = this.createJoin("right semi");
+  leftOnlyJoin = this.createJoin("left only");
+  rightOnlyJoin = this.createJoin("right only");
+  exclusionJoin = this.createJoin("exclusion");
 
   union = this.createSetOperator("union", false);
   unionAll = this.createSetOperator("union", true);

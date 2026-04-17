@@ -4,7 +4,7 @@ import { Column } from "drizzle-orm/column";
 import { entityKind, is } from "drizzle-orm/entity";
 import { DrizzleError } from "drizzle-orm/errors";
 import { getOperators, getOrderByOperators } from "drizzle-orm/relations";
-import { SQL, sql, type DriverValueEncoder, type QueryTypingsValue, type QueryWithTypings } from "drizzle-orm/sql/sql";
+import { SQL, sql as yql, type DriverValueEncoder, type QueryTypingsValue, type QueryWithTypings } from "drizzle-orm/sql/sql";
 import { and } from "drizzle-orm/sql/expressions";
 import type { Casing } from "drizzle-orm/utils";
 import type { YdbSession } from "../ydb-core/session.js";
@@ -20,6 +20,7 @@ import {
   buildOrderBy,
   buildSelectQuery,
   buildSelection,
+  buildReturningSelection,
   buildSetOperationQuery,
   buildSetOperations,
   mapExpressionsToSelectionAliases,
@@ -99,11 +100,11 @@ export class YdbDialect {
       return "decimal";
     }
 
-    if (sqlType === "Date") {
+    if (sqlType === "Date" || sqlType === "Date32") {
       return "date";
     }
 
-    if (sqlType === "Datetime" || sqlType === "Timestamp") {
+    if (sqlType === "Datetime" || sqlType === "Timestamp" || sqlType === "Datetime64" || sqlType === "Timestamp64") {
       return "timestamp";
     }
 
@@ -119,15 +120,15 @@ export class YdbDialect {
       return undefined;
     }
 
-    const withSqlChunks: SQL[] = [sql`with `];
+    const withSqlChunks: SQL[] = [yql`with `];
     for (const [index, query] of queries.entries()) {
-      withSqlChunks.push(sql`${sql.identifier(query._.alias)} as (${query._.sql})`);
+      withSqlChunks.push(yql`${yql.identifier(query._.alias)} as (${query._.sql})`);
       if (index < queries.length - 1) {
-        withSqlChunks.push(sql`, `);
+        withSqlChunks.push(yql`, `);
       }
     }
-    withSqlChunks.push(sql` `);
-    return sql.join(withSqlChunks);
+    withSqlChunks.push(yql` `);
+    return yql.join(withSqlChunks);
   }
 
   getSelectionAliases(fields: YdbSelectedFieldsOrdered): string[] {
@@ -145,6 +146,10 @@ export class YdbDialect {
 
   buildSelection(fields: YdbSelectedFieldsOrdered, aliases?: string[]) {
     return buildSelection(fields, aliases);
+  }
+
+  buildReturningSelection(fields: YdbSelectedFieldsOrdered) {
+    return buildReturningSelection(fields);
   }
 
   buildFromTable(table: unknown) {
@@ -188,48 +193,54 @@ export class YdbDialect {
   buildSelectQuery(config: YdbSelectConfig) {
     const withSql = this.buildWithCTE(config.withList);
     const query = buildSelectQuery(config);
-    return withSql ? sql`${withSql}${query}` : query;
+    return withSql ? yql`${withSql}${query}` : query;
   }
 
   buildInsertQuery(config: YdbInsertConfig): SQL {
     const withSql = this.buildWithCTE(config.withList);
-    const columnEntries = getInsertColumnEntries(config.table);
+    const columnEntries = config.columnEntries ?? getInsertColumnEntries(config.table);
     if (columnEntries.length === 0) {
       throw new Error("Insertable columns are missing");
     }
 
-    const insertOrder = sql`(${sql.join(columnEntries.map(([, column]) => sql.identifier(column.name)), sql`, `)})`;
+    const commandName = config.command ?? "insert";
+    const commandLabel = commandName.charAt(0).toUpperCase() + commandName.slice(1);
+    const insertOrder = yql`(${yql.join(columnEntries.map(([, column]) => yql.identifier(column.name)), yql`, `)})`;
+    const command = yql.raw(commandName);
+    const returningSql = config.returning
+      ? yql` returning ${this.buildReturningSelection(config.returning)}`
+      : undefined;
 
     if (config.select) {
       const selectQuery = is(config.values, SQL)
         ? config.values
         : (config.values as { getSQL(): SQL }).getSQL();
-      return sql`${withSql}insert into ${config.table} ${insertOrder} ${selectQuery}`;
+      return yql`${withSql}${command} into ${config.table} ${insertOrder} ${selectQuery}${returningSql}`;
     }
 
     if (!Array.isArray(config.values)) {
-      throw new Error("YDB insert values must be an array when select is not used");
+      throw new Error(`YDB ${commandName} values must be an array when select is not used`);
     }
 
     if (config.values.length === 0) {
-      throw new Error("Insert values are empty");
+      throw new Error(`${commandLabel} values are empty`);
     }
 
     for (const row of config.values) {
-      validateTableColumnKeys(config.table, row, "insert");
+      validateTableColumnKeys(config.table, row, commandName);
     }
 
-    const valuesSql = config.values.map((row) => sql`(${
-      sql.join(
-        columnEntries.map(([key, column]) => sql`${resolveInsertValue(column, row[key])}`),
-        sql`, `,
+    const valuesSql = config.values.map((row) => yql`(${
+      yql.join(
+        columnEntries.map(([key, column]) => yql`${resolveInsertValue(column, row[key])}`),
+        yql`, `,
       )
     })`);
 
-    return sql`${withSql}insert into ${config.table} ${insertOrder} values ${sql.join(valuesSql, sql`, `)}`;
+    return yql`${withSql}${command} into ${config.table} ${insertOrder} values ${yql.join(valuesSql, yql`, `)}${returningSql}`;
   }
 
-  buildUpdateSet(table: YdbUpdateConfig["table"], set: YdbUpdateConfig["set"]): SQL {
+  buildUpdateSet(table: YdbUpdateConfig["table"], set: NonNullable<YdbUpdateConfig["set"]>): SQL {
     const columns = getTableColumns(table);
     const setEntries = Object.entries(columns).flatMap(([key, column]) => {
       const value = resolveUpdateValue(column, set[key]);
@@ -237,39 +248,74 @@ export class YdbDialect {
         return [];
       }
 
-      return [sql`${sql.identifier(column.name)} = ${value}`];
+      return [yql`${yql.identifier(column.name)} = ${value}`];
     });
 
     if (setEntries.length === 0) {
       throw new Error("Update values are empty");
     }
 
-    return sql.join(setEntries, sql`, `);
+    return yql.join(setEntries, yql`, `);
   }
 
   buildUpdateQuery(config: YdbUpdateConfig): SQL {
     const withSql = this.buildWithCTE(config.withList);
-    const setSql = this.buildUpdateSet(config.table, config.set);
-    const whereSql = config.where ? sql` where ${config.where}` : undefined;
+    const returningSql = config.returning
+      ? yql` returning ${this.buildReturningSelection(config.returning)}`
+      : undefined;
+    const updateKeyword = config.batch ? yql`batch update` : yql`update`;
 
-    return sql`${withSql}update ${this.buildFromTable(config.table)} set ${setSql}${whereSql}`;
+    if (config.batch && (config.on || returningSql || withSql)) {
+      throw new Error("YDB BATCH UPDATE cannot use WITH, ON, or RETURNING");
+    }
+
+    if (config.on) {
+      return yql`${withSql}update ${this.buildFromTable(config.table)} on ${config.on}${returningSql}`;
+    }
+
+    if (!config.set) {
+      throw new Error("Update values are missing");
+    }
+
+    const set = config.set;
+    const setSql = this.buildUpdateSet(config.table, set);
+    const whereSql = config.where ? yql` where ${config.where}` : undefined;
+
+    return yql`${withSql}${updateKeyword} ${this.buildFromTable(config.table)} set ${setSql}${whereSql}${returningSql}`;
   }
 
   buildDeleteQuery(config: YdbDeleteConfig): SQL {
     const withSql = this.buildWithCTE(config.withList);
-    if (config.using && config.using.length > 0) {
-      const usingSql = sql.join(
-        config.using.map((table) => sql`${this.buildFromTable(table)}`),
-        sql`, `,
-      );
-      const existsWhereSql = config.where ? sql` where ${config.where}` : undefined;
+    const returningSql = config.returning
+      ? yql` returning ${this.buildReturningSelection(config.returning)}`
+      : undefined;
+    const deleteKeyword = config.batch ? yql`batch delete from` : yql`delete from`;
 
-      return sql`${withSql}delete from ${this.buildFromTable(config.table)} where exists (select 1 from ${usingSql}${existsWhereSql})`;
+    if (config.batch && (config.on || returningSql || withSql || (config.using && config.using.length > 0))) {
+      throw new Error("YDB BATCH DELETE cannot use WITH, ON, USING, or RETURNING");
     }
 
-    const whereSql = config.where ? sql` where ${config.where}` : undefined;
+    if (config.on) {
+      if (config.where || (config.using && config.using.length > 0)) {
+        throw new Error("YDB delete().on() cannot be combined with where() or using()");
+      }
 
-    return sql`${withSql}delete from ${this.buildFromTable(config.table)}${whereSql}`;
+      return yql`${withSql}delete from ${this.buildFromTable(config.table)} on ${config.on}${returningSql}`;
+    }
+
+    if (config.using && config.using.length > 0) {
+      const usingSql = yql.join(
+        config.using.map((table) => yql`${this.buildFromTable(table)}`),
+        yql`, `,
+      );
+      const existsWhereSql = config.where ? yql` where ${config.where}` : undefined;
+
+      return yql`${withSql}delete from ${this.buildFromTable(config.table)} where exists (select 1 from ${usingSql}${existsWhereSql})${returningSql}`;
+    }
+
+    const whereSql = config.where ? yql` where ${config.where}` : undefined;
+
+    return yql`${withSql}${deleteKeyword} ${this.buildFromTable(config.table)}${whereSql}${returningSql}`;
   }
 
   buildRelationalQueryWithoutPK({
@@ -324,7 +370,7 @@ export class YdbDialect {
 
       if (config.extras) {
         const extras = typeof config.extras === "function"
-          ? config.extras(aliasedColumns as Record<string, Column>, { sql })
+          ? config.extras(aliasedColumns as Record<string, Column>, { sql: yql })
           : config.extras;
 
         for (const [tsKey, value] of Object.entries(extras)) {
@@ -434,10 +480,10 @@ export class YdbDialect {
       ? { migrationsTable: config }
       : config;
 
-    await session.execute(sql.raw(buildMigrationTableBootstrapSql(migrationConfig)));
+    await session.execute(yql.raw(buildMigrationTableBootstrapSql(migrationConfig)));
 
     const appliedRows = await session.values<[string, number | string, string]>(
-      sql.raw(buildMigrationHistorySelectSql(migrationConfig)),
+      yql.raw(buildMigrationHistorySelectSql(migrationConfig)),
     );
     const appliedHashes = new Set(appliedRows.map(([hash]) => hash));
     const orderedMigrations = [...migrations].sort((left, right) => left.folderMillis - right.folderMillis);
@@ -453,10 +499,10 @@ export class YdbDialect {
           continue;
         }
 
-        await session.execute(sql.raw(trimmed));
+        await session.execute(yql.raw(trimmed));
       }
 
-      await session.execute(sql.raw(buildMigrationHistoryInsertSql({
+      await session.execute(yql.raw(buildMigrationHistoryInsertSql({
         hash: migration.hash,
         folderMillis: migration.folderMillis,
         name: deriveMigrationName(migration, index),

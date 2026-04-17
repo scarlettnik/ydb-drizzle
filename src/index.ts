@@ -35,11 +35,16 @@ export {
 } from "./ydb-core/schema.types.js";
 export { union, unionAll, intersect, except } from "./ydb-core/query-builders/select.js";
 export { YdbCountBuilder, YdbQueryBuilder } from "./ydb-core/query-builders/index.js";
-export { index, uniqueIndex } from "./ydb-core/indexes.js";
+export { index, indexView, uniqueIndex } from "./ydb-core/indexes.js";
 export { migrate, type YdbMigrateConfig, type YdbMigratorConfig } from "./ydb/migrator.js";
 export {
   buildAddColumnsSql,
+  buildAddColumnFamilySql,
   buildAddIndexSql,
+  buildAlterColumnFamilySql,
+  buildAlterColumnSetFamilySql,
+  buildAlterTableResetOptionsSql,
+  buildAlterTableSetOptionsSql,
   buildCreateTableSql,
   buildDropColumnsSql,
   buildDropIndexSql,
@@ -59,6 +64,17 @@ export {
 } from "./ydb/createDrizzle.js";
 export { createMany as many, createOne as one, relations } from "drizzle-orm";
 export { ydbTable, ydbTableCreator, type YdbTable, type YdbTableFn } from "./ydb-core/table.js";
+export {
+  columnFamily,
+  partitionByHash,
+  rawTableOption,
+  tableOptions,
+  ttl,
+  type YdbColumnFamilyOptions,
+  type YdbTableOptionValue,
+  type YdbTtlAction,
+  type YdbTtlUnit,
+} from "./ydb-core/table-options.js";
 export { customType } from "./ydb-core/columns/custom.js";
 export { integer, int } from "./ydb-core/columns/integer.js";
 export { text } from "./ydb-core/columns/text.js";
@@ -68,14 +84,23 @@ export {
   boolean,
   bytes,
   date,
+  date32,
   datetime,
+  datetime64,
   decimal,
   double,
+  dyNumber,
   float,
+  int8,
+  int16,
   interval,
+  interval64,
   json,
   jsonDocument,
   timestamp,
+  timestamp64,
+  uint8,
+  uint16,
   uint32,
   uint64,
   uuid,

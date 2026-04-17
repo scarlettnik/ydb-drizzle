@@ -49,7 +49,7 @@ export class YdbCustomColumnBuilder<
     ydbColumnBuilderBrand: "YdbCustomColumnBuilderBrand";
   }
 > {
-  static readonly [entityKind]: string = "YdbCustomColumnBuilder";
+  static override readonly [entityKind]: string = "YdbCustomColumnBuilder";
 
   constructor(name: T["name"], fieldConfig: CustomTypeValues["config"], customTypeParams: CustomTypeParams<any>) {
     super(name, "custom", "YdbCustomColumn");
@@ -66,7 +66,7 @@ export class YdbCustomColumnBuilder<
 }
 
 export class YdbCustomColumn<T extends ColumnBaseConfig<"custom", "YdbCustomColumn">> extends YdbColumn<T> {
-  static readonly [entityKind]: string = "YdbCustomColumn";
+  static override readonly [entityKind]: string = "YdbCustomColumn";
 
   private readonly sqlName: string;
   private readonly mapTo?: (value: T["data"]) => T["driverParam"] | SQL;
@@ -79,7 +79,7 @@ export class YdbCustomColumn<T extends ColumnBaseConfig<"custom", "YdbCustomColu
     this.mapFrom = config.customTypeParams.fromDriver;
   }
 
-  getSQLType(): string {
+  override getSQLType(): string {
     return this.sqlName;
   }
 

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { after, before, type TestContext } from "node:test";
-import { eq, sql } from "drizzle-orm";
+import { eq, sql as yql } from "drizzle-orm";
 import { drizzle, YdbDriver, type YdbDrizzleDatabase } from "../../../src/index.js";
 import { keepData, liveSchema, posts, postsTableName, typesTable, typesTableName, users, usersTableName, verbose, ydbUrl } from "./schema.js";
 
@@ -51,7 +51,7 @@ export function createLiveContext(): LiveTestContext {
   }
 
   async function ensureTables(): Promise<void> {
-    await db.execute(sql.raw(`
+    await db.execute(yql.raw(`
       CREATE TABLE IF NOT EXISTS ${usersTableName} (
         id Int32,
         name Utf8,
@@ -59,7 +59,7 @@ export function createLiveContext(): LiveTestContext {
       )
     `));
 
-    await db.execute(sql.raw(`
+    await db.execute(yql.raw(`
       CREATE TABLE IF NOT EXISTS ${postsTableName} (
         id Int32,
         user_id Int32,
@@ -68,7 +68,7 @@ export function createLiveContext(): LiveTestContext {
       )
     `));
 
-    await db.execute(sql.raw(`
+    await db.execute(yql.raw(`
       CREATE TABLE IF NOT EXISTS ${typesTableName} (
         id Uint64,
         flag Bool,
@@ -120,27 +120,27 @@ export function createLiveContext(): LiveTestContext {
   }
 
   function normalizeTypeRow(row: Record<string, unknown>) {
-    assert.ok(row.bytesValue instanceof Uint8Array);
-    assert.ok(row.ysonValue instanceof Uint8Array);
-    assert.ok(row.dateValue instanceof Date);
-    assert.ok(row.datetimeValue instanceof Date);
-    assert.ok(row.timestampValue instanceof Date);
+    assert.ok(row["bytesValue"] instanceof Uint8Array);
+    assert.ok(row["ysonValue"] instanceof Uint8Array);
+    assert.ok(row["dateValue"] instanceof Date);
+    assert.ok(row["datetimeValue"] instanceof Date);
+    assert.ok(row["timestampValue"] instanceof Date);
 
     return {
-      id: row.id,
-      flag: row.flag,
-      signed64: row.signed64,
-      u32: row.u32,
-      f32: row.f32,
-      f64: row.f64,
-      bytesValue: Array.from(row.bytesValue),
-      dateValue: row.dateValue.toISOString(),
-      datetimeValue: row.datetimeValue.toISOString(),
-      timestampValue: row.timestampValue.toISOString(),
-      jsonValue: row.jsonValue,
-      jsonDocumentValue: row.jsonDocumentValue,
-      uuidValue: row.uuidValue,
-      ysonValue: Array.from(row.ysonValue),
+      id: row["id"],
+      flag: row["flag"],
+      signed64: row["signed64"],
+      u32: row["u32"],
+      f32: row["f32"],
+      f64: row["f64"],
+      bytesValue: Array.from(row["bytesValue"] as Uint8Array),
+      dateValue: (row["dateValue"] as Date).toISOString(),
+      datetimeValue: (row["datetimeValue"] as Date).toISOString(),
+      timestampValue: (row["timestampValue"] as Date).toISOString(),
+      jsonValue: row["jsonValue"],
+      jsonDocumentValue: row["jsonDocumentValue"],
+      uuidValue: row["uuidValue"],
+      ysonValue: Array.from(row["ysonValue"] as Uint8Array),
     };
   }
 

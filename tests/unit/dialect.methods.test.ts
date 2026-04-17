@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { aliasedTable } from "drizzle-orm/alias";
 import { createTableRelationsHelpers, extractTablesRelationalConfig } from "drizzle-orm/relations";
-import { eq, sql } from "drizzle-orm";
+import { eq, sql as yql } from "drizzle-orm";
 import { WithSubquery } from "drizzle-orm/subquery";
 import {
   date,
@@ -47,13 +47,13 @@ test("direct dialect fragment helpers build selection, table, join and tail clau
   const fields = orderSelectedFields({ userId: users.id, postTitle: posts.title });
   const selectionAliases = ["user_id_alias", "post_title_alias"];
   const mappedOrderBy = dialect.mapExpressionsToSelectionAliases(
-    [users.id, sql`${posts.title} desc`],
+    [users.id, yql`${posts.title} desc`],
     fields,
     selectionAliases,
     "orderBy()",
   );
 
-  const built = dialect.sqlToQuery(sql`select ${
+  const built = dialect.sqlToQuery(yql`select ${
     dialect.buildSelection(fields, selectionAliases)
   } from ${
     dialect.buildFromTable(users)
@@ -74,11 +74,11 @@ test("direct dialect fragment helpers build selection, table, join and tail clau
   assert.deepEqual(built.params, [3, 2]);
 
   assert.equal(
-    dialect.sqlToQuery(sql`${dialect.buildFromTable(aliasedUsers)}`).sql,
+    dialect.sqlToQuery(yql`${dialect.buildFromTable(aliasedUsers)}`).sql,
     "`users` `u`",
   );
   assert.equal(
-    dialect.sqlToQuery(sql`${dialect.buildOrderBy(mappedOrderBy)}`).sql,
+    dialect.sqlToQuery(yql`${dialect.buildOrderBy(mappedOrderBy)}`).sql,
     " order by `user_id_alias`, `post_title_alias` desc",
   );
 
@@ -133,18 +133,18 @@ test("direct dialect set-operation helpers build single and chained set queries"
 
   assert.equal(
     chained.sql,
-    "select distinct `__ydb_left`.`__ydb_f0` as `__ydb_f0` from (select `users`.`name` as `__ydb_f0` from `users` where `users`.`id` = $p0 union all select `posts`.`title` as `__ydb_f0` from `posts` where `posts`.`user_id` = $p1) as `__ydb_left` left join (select `users`.`name` as `__ydb_f0` from `users` where `users`.`id` = $p2) as `__ydb_right` on `__ydb_left`.`__ydb_f0` = `__ydb_right`.`__ydb_f0` where `__ydb_right`.`__ydb_f0` is null",
+    "select distinct `__ydb_left`.`__ydb_f0` as `__ydb_f0` from (select `users`.`name` as `__ydb_f0` from `users` where `users`.`id` = $p0 union all select `posts`.`title` as `__ydb_f0` from `posts` where `posts`.`user_id` = $p1) as `__ydb_left` left join (select `__ydb_right_input`.`__ydb_f0` as `__ydb_f0`, 1 as `__ydb_match` from (select `users`.`name` as `__ydb_f0` from `users` where `users`.`id` = $p2) as `__ydb_right_input`) as `__ydb_right` on (`__ydb_left`.`__ydb_f0` = `__ydb_right`.`__ydb_f0` or (`__ydb_left`.`__ydb_f0` is null and `__ydb_right`.`__ydb_f0` is null)) where `__ydb_right`.`__ydb_match` is null",
   );
   assert.deepEqual(chained.params, [1, 1, 2]);
 });
 
 test("buildWithCTE, buildInsertQuery, buildUpdateSet, buildUpdateQuery and buildDeleteQuery", () => {
   const ponyCte = new WithSubquery(
-    sql`select ${1} as ${sql.identifier("id")}`,
+    yql`select ${1} as ${yql.identifier("id")}`,
     { id: users.id } as any,
     "pony_cte",
   );
-  const withQuery = dialect.sqlToQuery(sql`${dialect.buildWithCTE([ponyCte])}select * from ${sql.identifier("pony_cte")}`);
+  const withQuery = dialect.sqlToQuery(yql`${dialect.buildWithCTE([ponyCte])}select * from ${yql.identifier("pony_cte")}`);
 
   assert.equal(withQuery.sql, "with `pony_cte` as (select $p0 as `id`) select * from `pony_cte`");
   assert.deepEqual(withQuery.params, [1]);
@@ -162,7 +162,7 @@ test("buildWithCTE, buildInsertQuery, buildUpdateSet, buildUpdateQuery and build
   const insertSelectQuery = dialect.sqlToQuery(dialect.buildInsertQuery({
     table: users,
     select: true,
-    values: sql`select ${2}, ${"Pinkie Pie"}, ${100}, ${200}`,
+    values: yql`select ${2}, ${"Pinkie Pie"}, ${100}, ${200}`,
   }));
   assert.equal(
     insertSelectQuery.sql,
@@ -170,7 +170,19 @@ test("buildWithCTE, buildInsertQuery, buildUpdateSet, buildUpdateQuery and build
   );
   assert.deepEqual(insertSelectQuery.params, [2, "Pinkie Pie", 100, 200]);
 
-  const setQuery = dialect.sqlToQuery(sql`${dialect.buildUpdateSet(users, { name: "Fluttershy" })}`);
+  const upsertReturningQuery = dialect.sqlToQuery(dialect.buildInsertQuery({
+    table: users,
+    command: "upsert",
+    values: [{ id: 3, name: "Rarity" }],
+    returning: orderSelectedFields({ id: users.id, name: users.name }),
+  }));
+  assert.equal(
+    upsertReturningQuery.sql,
+    "upsert into `users` (`id`, `name`, `created_at`, `updated_at`) values ($p0, $p1, $p2, $p3) returning `id`, `name`",
+  );
+  assert.deepEqual(upsertReturningQuery.params, [3, "Rarity", 100, 200]);
+
+  const setQuery = dialect.sqlToQuery(yql`${dialect.buildUpdateSet(users, { name: "Fluttershy" })}`);
   assert.equal(setQuery.sql, "`name` = $p0, `updated_at` = $p1");
   assert.deepEqual(setQuery.params, ["Fluttershy", 200]);
 
@@ -185,12 +197,55 @@ test("buildWithCTE, buildInsertQuery, buildUpdateSet, buildUpdateQuery and build
   );
   assert.deepEqual(updateQuery.params, ["Fluttershy", 200, 5]);
 
+  const updateReturningQuery = dialect.sqlToQuery(dialect.buildUpdateQuery({
+    table: users,
+    set: { name: "Fluttershy" },
+    where: eq(users.id, 5),
+    returning: orderSelectedFields({ id: users.id, name: users.name }),
+  }));
+  assert.equal(
+    updateReturningQuery.sql,
+    "update `users` set `name` = $p0, `updated_at` = $p1 where `users`.`id` = $p2 returning `id`, `name`",
+  );
+  assert.deepEqual(updateReturningQuery.params, ["Fluttershy", 200, 5]);
+
+  const updateOnQuery = dialect.sqlToQuery(dialect.buildUpdateQuery({
+    table: users,
+    on: yql`select ${1} as ${yql.identifier("id")}, ${"Twilight"} as ${yql.identifier("name")}`,
+  }));
+  assert.equal(
+    updateOnQuery.sql,
+    "update `users` on select $p0 as `id`, $p1 as `name`",
+  );
+  assert.deepEqual(updateOnQuery.params, [1, "Twilight"]);
+
   const deleteQuery = dialect.sqlToQuery(dialect.buildDeleteQuery({
     table: users,
     where: eq(users.id, 7),
   }));
   assert.equal(deleteQuery.sql, "delete from `users` where `users`.`id` = $p0");
   assert.deepEqual(deleteQuery.params, [7]);
+
+  const deleteReturningQuery = dialect.sqlToQuery(dialect.buildDeleteQuery({
+    table: users,
+    where: eq(users.id, 7),
+    returning: orderSelectedFields({ id: users.id, name: users.name }),
+  }));
+  assert.equal(
+    deleteReturningQuery.sql,
+    "delete from `users` where `users`.`id` = $p0 returning `id`, `name`",
+  );
+  assert.deepEqual(deleteReturningQuery.params, [7]);
+
+  const deleteOnQuery = dialect.sqlToQuery(dialect.buildDeleteQuery({
+    table: users,
+    on: yql`select ${1} as ${yql.identifier("id")}`,
+  }));
+  assert.equal(
+    deleteOnQuery.sql,
+    "delete from `users` on select $p0 as `id`",
+  );
+  assert.deepEqual(deleteOnQuery.params, [1]);
 });
 
 test("buildRelationalQueryWithoutPK builds flat schema-aware queries", () => {
@@ -204,8 +259,8 @@ test("buildRelationalQueryWithoutPK builds flat schema-aware queries", () => {
     tableConfig: (tablesConfig.tables as any).users,
     queryConfig: {
       columns: { id: true, name: true },
-      where: (fields, operators) => operators.eq(fields.id, 7),
-      orderBy: (fields, operators) => operators.desc(fields.id),
+      where: (fields, operators) => operators.eq(fields["id"], 7),
+      orderBy: (fields, operators) => operators.desc(fields["id"]),
       limit: 1,
       offset: 2,
     },

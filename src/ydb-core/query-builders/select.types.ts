@@ -8,4 +8,4 @@ export interface YdbSelectBuilderOptions {
   distinctOn?: SQLWrapper[];
 }
 
-export type SelectConfigWithTable = Omit<YdbSelectConfig, "table"> & { table: unknown };
+export type SelectConfigWithTable = Omit<YdbSelectConfig, "table"> & { table?: unknown };

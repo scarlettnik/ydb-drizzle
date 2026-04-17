@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { sql } from "drizzle-orm";
+import { sql as yql } from "drizzle-orm";
 import { buildCreateTableSql, index, integer, migrate, text, type YdbInlineMigration, ydbTable } from "../../src/index.js";
 import { createLiveContext } from "./helpers/context.js";
 
@@ -40,8 +40,8 @@ test("inline migrate applies DDL, bookkeeping and remains idempotent on live YDB
     index(`${tableName}_age_idx`).on(table.age),
   ]);
 
-  await live.db.execute(sql.raw(`DROP TABLE IF EXISTS \`${migrationTableName}\``));
-  await live.db.execute(sql.raw(`DROP TABLE IF EXISTS \`${tableName}\``));
+  await live.db.execute(yql.raw(`DROP TABLE IF EXISTS \`${migrationTableName}\``));
+  await live.db.execute(yql.raw(`DROP TABLE IF EXISTS \`${tableName}\``));
 
   try {
     await migrate(live.db, {
@@ -57,8 +57,8 @@ test("inline migrate applies DDL, bookkeeping and remains idempotent on live YDB
       ],
     });
 
-    await live.db.execute(sql.raw(`UPSERT INTO \`${tableName}\` (\`id\`, \`name\`) VALUES (1, 'Twilight Sparkle')`));
-    const initialRows = await live.db.values<[number, string]>(sql.raw(`SELECT \`id\`, \`name\` FROM \`${tableName}\` ORDER BY \`id\``));
+    await live.db.execute(yql.raw(`UPSERT INTO \`${tableName}\` (\`id\`, \`name\`) VALUES (1, 'Twilight Sparkle')`));
+    const initialRows = await live.db.values<[number, string]>(yql.raw(`SELECT \`id\`, \`name\` FROM \`${tableName}\` ORDER BY \`id\``));
     assert.deepEqual(initialRows, [[1, "Twilight Sparkle"]]);
 
     const addAgeIndex = index(`${tableName}_age_idx`).on(usersWithAge.age).build(usersWithAge);
@@ -86,10 +86,10 @@ test("inline migrate applies DDL, bookkeeping and remains idempotent on live YDB
     await migrate(live.db, incrementalConfig);
 
     await live.db.execute(
-      sql.raw(`UPSERT INTO \`${tableName}\` (\`id\`, \`name\`, \`age\`) VALUES (2, 'Rainbow Dash', 21)`),
+      yql.raw(`UPSERT INTO \`${tableName}\` (\`id\`, \`name\`, \`age\`) VALUES (2, 'Rainbow Dash', 21)`),
     );
     const rowsWithAge = await live.db.values<[number, string, number | null]>(
-      sql.raw(`SELECT \`id\`, \`name\`, \`age\` FROM \`${tableName}\` ORDER BY \`id\``),
+      yql.raw(`SELECT \`id\`, \`name\`, \`age\` FROM \`${tableName}\` ORDER BY \`id\``),
     );
     assert.deepEqual(
       normalize(rowsWithAge),
@@ -100,7 +100,7 @@ test("inline migrate applies DDL, bookkeeping and remains idempotent on live YDB
     );
 
     const bookkeepingRows = await live.db.values<[string, number, string]>(
-      sql.raw(`SELECT \`hash\`, \`created_at\`, \`name\` FROM \`${migrationTableName}\` ORDER BY \`created_at\``),
+      yql.raw(`SELECT \`hash\`, \`created_at\`, \`name\` FROM \`${migrationTableName}\` ORDER BY \`created_at\``),
     );
     assert.equal(bookkeepingRows.length, 2);
 
@@ -129,11 +129,11 @@ test("inline migrate applies DDL, bookkeeping and remains idempotent on live YDB
     });
 
     await assert.rejects(
-      async () => live.db.values(sql.raw(`SELECT * FROM \`${tableName}\``)),
+      async () => live.db.values(yql.raw(`SELECT * FROM \`${tableName}\``)),
     );
   } finally {
-    await live.db.execute(sql.raw(`DROP TABLE IF EXISTS \`${tableName}\``));
-    await live.db.execute(sql.raw(`DROP TABLE IF EXISTS \`${migrationTableName}\``));
+    await live.db.execute(yql.raw(`DROP TABLE IF EXISTS \`${tableName}\``));
+    await live.db.execute(yql.raw(`DROP TABLE IF EXISTS \`${migrationTableName}\``));
   }
 });
 
@@ -172,8 +172,8 @@ test("folder migrate accepts drizzle journal/sql format on live YDB", async (t) 
     `ALTER TABLE \`${tableName}\` ADD COLUMN \`age\` Int32`,
   );
 
-  await live.db.execute(sql.raw(`DROP TABLE IF EXISTS \`${migrationTableName}\``));
-  await live.db.execute(sql.raw(`DROP TABLE IF EXISTS \`${tableName}\``));
+  await live.db.execute(yql.raw(`DROP TABLE IF EXISTS \`${migrationTableName}\``));
+  await live.db.execute(yql.raw(`DROP TABLE IF EXISTS \`${tableName}\``));
 
   try {
     await migrate(live.db, {
@@ -182,15 +182,15 @@ test("folder migrate accepts drizzle journal/sql format on live YDB", async (t) 
     });
 
     await live.db.execute(
-      sql.raw(`UPSERT INTO \`${tableName}\` (\`id\`, \`name\`, \`age\`) VALUES (1, 'Applejack', 24)`),
+      yql.raw(`UPSERT INTO \`${tableName}\` (\`id\`, \`name\`, \`age\`) VALUES (1, 'Applejack', 24)`),
     );
     const rows = await live.db.values<[number, string, number]>(
-      sql.raw(`SELECT \`id\`, \`name\`, \`age\` FROM \`${tableName}\``),
+      yql.raw(`SELECT \`id\`, \`name\`, \`age\` FROM \`${tableName}\``),
     );
     assert.deepEqual(rows, [[1, "Applejack", 24]]);
 
     const bookkeepingRows = await live.db.values<[string, number, string]>(
-      sql.raw(`SELECT \`hash\`, \`created_at\`, \`name\` FROM \`${migrationTableName}\` ORDER BY \`created_at\``),
+      yql.raw(`SELECT \`hash\`, \`created_at\`, \`name\` FROM \`${migrationTableName}\` ORDER BY \`created_at\``),
     );
     assert.equal(bookkeepingRows.length, 2);
 
@@ -199,13 +199,13 @@ test("folder migrate accepts drizzle journal/sql format on live YDB", async (t) 
       migrationsTable: migrationTableName,
     });
     const bookkeepingRowsAfter = await live.db.values<[string, number, string]>(
-      sql.raw(`SELECT \`hash\`, \`created_at\`, \`name\` FROM \`${migrationTableName}\` ORDER BY \`created_at\``),
+      yql.raw(`SELECT \`hash\`, \`created_at\`, \`name\` FROM \`${migrationTableName}\` ORDER BY \`created_at\``),
     );
     assert.equal(bookkeepingRowsAfter.length, 2);
   } finally {
     rmSync(tempDir, { recursive: true, force: true });
-    await live.db.execute(sql.raw(`DROP TABLE IF EXISTS \`${tableName}\``));
-    await live.db.execute(sql.raw(`DROP TABLE IF EXISTS \`${migrationTableName}\``));
+    await live.db.execute(yql.raw(`DROP TABLE IF EXISTS \`${tableName}\``));
+    await live.db.execute(yql.raw(`DROP TABLE IF EXISTS \`${migrationTableName}\``));
   }
 });
 
@@ -220,21 +220,21 @@ test("inline unique column constraints work on live YDB", async (t) => {
     email: text("email").notNull().unique(),
   });
 
-  await live.db.execute(sql.raw(`DROP TABLE IF EXISTS \`${tableName}\``));
+  await live.db.execute(yql.raw(`DROP TABLE IF EXISTS \`${tableName}\``));
 
   try {
-    await live.db.execute(sql.raw(buildCreateTableSql(users, { ifNotExists: true })));
-    await live.db.execute(sql.raw(`INSERT INTO \`${tableName}\` (\`id\`, \`email\`) VALUES (1, 'rarity@example.com')`));
+    await live.db.execute(yql.raw(buildCreateTableSql(users, { ifNotExists: true })));
+    await live.db.execute(yql.raw(`INSERT INTO \`${tableName}\` (\`id\`, \`email\`) VALUES (1, 'rarity@example.com')`));
 
     await assert.rejects(
-      () => live.db.execute(sql.raw(`INSERT INTO \`${tableName}\` (\`id\`, \`email\`) VALUES (2, 'rarity@example.com')`)),
+      () => live.db.execute(yql.raw(`INSERT INTO \`${tableName}\` (\`id\`, \`email\`) VALUES (2, 'rarity@example.com')`)),
     );
 
     const rows = await live.db.values<[number, string]>(
-      sql.raw(`SELECT \`id\`, \`email\` FROM \`${tableName}\` ORDER BY \`id\``),
+      yql.raw(`SELECT \`id\`, \`email\` FROM \`${tableName}\` ORDER BY \`id\``),
     );
     assert.deepEqual(rows, [[1, "rarity@example.com"]]);
   } finally {
-    await live.db.execute(sql.raw(`DROP TABLE IF EXISTS \`${tableName}\``));
+    await live.db.execute(yql.raw(`DROP TABLE IF EXISTS \`${tableName}\``));
   }
 });

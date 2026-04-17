@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { eq, sql } from "drizzle-orm";
+import { eq, sql as yql } from "drizzle-orm";
 import { createLiveContext } from "./helpers/context.js";
 import { typesTable, typesTableName } from "./helpers/schema.js";
 import { orderSelectedFields } from "../../src/ydb-core/result-mapping.js";
@@ -136,7 +136,7 @@ test("prepared query decodes typed object rows on live YDB", async (t) => {
       timestampValue: typesTable.timestampValue,
     });
     const prepared = live.db._.session.prepareQuery(
-      sql.raw(
+      yql.raw(
         `SELECT \`id\`, \`bytes_value\`, \`json_value\`, \`timestamp_value\` FROM \`${typesTableName}\` WHERE \`id\` = ${id.toString()}`,
       ),
       fields,
@@ -145,12 +145,12 @@ test("prepared query decodes typed object rows on live YDB", async (t) => {
     );
     const row = await prepared.get() as Record<string, unknown>;
 
-    assert.equal(row.id, id);
-    assert.ok(row.bytesValue instanceof Uint8Array);
-    assert.deepEqual(Array.from(row.bytesValue as Uint8Array), Array.from(bytesValue));
-    assert.deepEqual(row.jsonValue, jsonValue);
-    assert.ok(row.timestampValue instanceof Date);
-    assert.equal((row.timestampValue as Date).toISOString(), timestampValue.toISOString());
+    assert.equal(row["id"], id);
+    assert.ok(row["bytesValue"] instanceof Uint8Array);
+    assert.deepEqual(Array.from(row["bytesValue"] as Uint8Array), Array.from(bytesValue));
+    assert.deepEqual(row["jsonValue"], jsonValue);
+    assert.ok(row["timestampValue"] instanceof Date);
+    assert.equal((row["timestampValue"] as Date).toISOString(), timestampValue.toISOString());
   } finally {
     await live.deleteTypeRows([id]);
   }

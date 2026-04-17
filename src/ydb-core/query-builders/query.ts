@@ -20,7 +20,7 @@ import {
 } from "drizzle-orm/relations";
 import { QueryPromise } from "drizzle-orm/query-promise";
 import { and, eq, inArray, or } from "drizzle-orm/sql/expressions";
-import { sql, type SQL, type SQLWrapper } from "drizzle-orm/sql/sql";
+import { sql as yql, type SQL, type SQLWrapper } from "drizzle-orm/sql/sql";
 import { getTableUniqueName } from "drizzle-orm/table";
 import type { KnownKeysOnly, ValueOrArray } from "drizzle-orm/utils";
 import type { YdbDialect } from "../../ydb/dialect.js";
@@ -247,7 +247,7 @@ function getExtrasSelection(
 
   const aliasedColumns = getAliasedColumns(tableConfig, tableAlias);
   const extras = typeof config.extras === "function"
-    ? config.extras(aliasedColumns as Record<string, YdbColumn>, { sql })
+    ? config.extras(aliasedColumns as Record<string, YdbColumn>, { sql: yql })
     : config.extras;
 
   return Object.entries(extras).map(([tsKey, value]) => ({

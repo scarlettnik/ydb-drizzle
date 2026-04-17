@@ -9,9 +9,9 @@ test("select builder maps joins and advanced queries", async () => {
   const advancedSession = {
     prepareQuery(
       query: any,
-      fields: unknown,
-      name?: string,
-      isResponseInArrayMode = false,
+      _fields: unknown,
+      _name?: string,
+      _isResponseInArrayMode = false,
       customResultMapper?: (rows: unknown[][]) => unknown,
     ) {
       const built = "sql" in query && Array.isArray(query.params) ? query : dialect.sqlToQuery(query);

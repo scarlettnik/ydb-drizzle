@@ -11,7 +11,7 @@ export class YdbTextBuilder extends YdbColumnBuilder {
 }
 
 export class YdbText extends YdbColumn {
-  getSQLType(): string {
+  override getSQLType(): string {
     return "Utf8";
   }
 }

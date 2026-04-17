@@ -53,7 +53,7 @@ test("transaction commit", async () => {
     async transaction(callback, config) {
       transactionConfigs.push(config);
       return callback({
-        async execute(query, params, method, options) {
+        async execute(query, params, _method, options) {
           return executeInStore(query, params, options);
         },
       });

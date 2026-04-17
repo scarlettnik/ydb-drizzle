@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { sql } from "drizzle-orm";
+import { sql as yql } from "drizzle-orm";
 import { drizzle, integer, text, ydbTable } from "../../src/index.js";
 
 const users = ydbTable("users", {
@@ -27,7 +27,7 @@ test("logger", async () => {
     },
   });
 
-  await db.execute<{ value: number }[]>(sql`select ${123} as value`);
+  await db.execute<{ value: number }[]>(yql`select ${123} as value`);
   await db.insert(users).values({ id: 1, name: "Pinkie Pie" });
 
   assert.equal(logs.length, 2);

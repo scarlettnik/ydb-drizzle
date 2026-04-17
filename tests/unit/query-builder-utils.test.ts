@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { sql } from "drizzle-orm";
+import { sql as yql } from "drizzle-orm";
 import { integer, text, ydbTable } from "../../src/index.js";
 import {
   getInsertColumnEntries,
@@ -12,7 +12,7 @@ import {
 import { dialect, users } from "../helpers/unit-basic.js";
 
 function fragmentToQuery(fragment: unknown) {
-  return dialect.sqlToQuery(sql`${fragment as any}`);
+  return dialect.sqlToQuery(yql`${fragment as any}`);
 }
 
 test("getTableColumns and insert entries expose table metadata", () => {
@@ -41,28 +41,38 @@ test("validateTableColumnKeys rejects unknown fields for insert and update", () 
 
 test("resolveInsertValue uses explicit values, defaults, onUpdate hooks and SQL default", () => {
   const columns = getTableColumns(users);
+  const staticDefaultUsers = ydbTable("static_default_users", {
+    id: integer("id").notNull(),
+    score: integer("score").default(42),
+  });
   const plainUsers = ydbTable("plain_users", {
     id: integer("id").notNull(),
     name: text("name").notNull(),
   });
+  const staticDefaultColumns = getTableColumns(staticDefaultUsers);
   const plainColumns = getTableColumns(plainUsers);
 
-  assert.deepEqual(fragmentToQuery(resolveInsertValue(columns.name, "Twilight Sparkle")), {
+  assert.deepEqual(fragmentToQuery(resolveInsertValue(columns["name"]!, "Twilight Sparkle")), {
     sql: "$p0",
     params: ["Twilight Sparkle"],
     typings: ["none"],
   });
-  assert.deepEqual(fragmentToQuery(resolveInsertValue(columns.createdAt, undefined)), {
+  assert.deepEqual(fragmentToQuery(resolveInsertValue(columns["createdAt"]!, undefined)), {
     sql: "$p0",
     params: [100],
     typings: ["none"],
   });
-  assert.deepEqual(fragmentToQuery(resolveInsertValue(columns.updatedAt, undefined)), {
+  assert.deepEqual(fragmentToQuery(resolveInsertValue(columns["updatedAt"]!, undefined)), {
     sql: "$p0",
     params: [200],
     typings: ["none"],
   });
-  assert.deepEqual(fragmentToQuery(resolveInsertValue(plainColumns.name, undefined)), {
+  assert.deepEqual(fragmentToQuery(resolveInsertValue(staticDefaultColumns["score"]!, undefined)), {
+    sql: "$p0",
+    params: [42],
+    typings: ["none"],
+  });
+  assert.deepEqual(fragmentToQuery(resolveInsertValue(plainColumns["name"]!, undefined)), {
     sql: "default",
     params: [],
   });
@@ -76,15 +86,15 @@ test("resolveUpdateValue uses explicit values and onUpdate hooks", () => {
   });
   const plainColumns = getTableColumns(plainUsers);
 
-  assert.deepEqual(fragmentToQuery(resolveUpdateValue(columns.name, "Applejack")), {
+  assert.deepEqual(fragmentToQuery(resolveUpdateValue(columns["name"]!, "Applejack")), {
     sql: "$p0",
     params: ["Applejack"],
     typings: ["none"],
   });
-  assert.deepEqual(fragmentToQuery(resolveUpdateValue(columns.updatedAt, undefined)), {
+  assert.deepEqual(fragmentToQuery(resolveUpdateValue(columns["updatedAt"]!, undefined)), {
     sql: "$p0",
     params: [200],
     typings: ["none"],
   });
-  assert.equal(resolveUpdateValue(plainColumns.name, undefined), undefined);
+  assert.equal(resolveUpdateValue(plainColumns["name"]!, undefined), undefined);
 });

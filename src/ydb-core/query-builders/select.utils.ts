@@ -3,7 +3,6 @@ import { SelectionProxyHandler } from "drizzle-orm/selection-proxy";
 import { SQL, View, type SQLWrapper } from "drizzle-orm/sql/sql";
 import { Subquery } from "drizzle-orm/subquery";
 import { Table } from "drizzle-orm/table";
-import { ViewBaseConfig } from "drizzle-orm/view-common";
 import type { YdbTable } from "../table.js";
 import { getTableColumns } from "./utils.js";
 import type { SelectFields } from "./select.types.js";
@@ -22,7 +21,7 @@ export function getTableLikeName(table: unknown): string | undefined {
   }
 
   if (is(table, View)) {
-    return table[ViewBaseConfig].name;
+    return table._.name;
   }
 
   if (is(table, Table)) {
@@ -35,12 +34,12 @@ export function getTableLikeName(table: unknown): string | undefined {
 export function getSourceSelection(source: unknown): SelectFields {
   if (is(source, Subquery)) {
     return Object.fromEntries(
-      Object.keys(source._.selectedFields).map((key) => [key, source[key]]),
+      Object.keys(source._.selectedFields).map((key) => [key, (source as unknown as Record<string, unknown>)[key]]),
     );
   }
 
   if (is(source, View)) {
-    return source[ViewBaseConfig].selectedFields;
+    return source._.selectedFields;
   }
 
   if (is(source, SQL)) {

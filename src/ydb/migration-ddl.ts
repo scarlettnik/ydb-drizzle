@@ -3,6 +3,13 @@ import { getTableName } from "drizzle-orm/table";
 import type { YdbColumn } from "../ydb-core/columns/common.js";
 import type { YdbIndex, YdbIndexConfig } from "../ydb-core/indexes.js";
 import type { YdbPrimaryKey } from "../ydb-core/primary-keys.js";
+import type {
+  YdbColumnFamily,
+  YdbColumnFamilyOptions,
+  YdbTableOptionValue,
+  YdbTableOptions,
+  YdbTtl,
+} from "../ydb-core/table-options.js";
 import { getTableConfig } from "../ydb-core/table.utils.js";
 import type { YdbTable, YdbTableWithColumns } from "../ydb-core/table.js";
 import type { YdbUniqueConstraint } from "../ydb-core/unique-constraint.js";
@@ -48,13 +55,50 @@ export interface YdbDropIndexOperation {
   name: string;
 }
 
+export interface YdbSetTableOptionsOperation {
+  kind: "set_table_options";
+  table: string | YdbTable;
+  options: Readonly<Record<string, YdbTableOptionValue>>;
+}
+
+export interface YdbResetTableOptionsOperation {
+  kind: "reset_table_options";
+  table: string | YdbTable;
+  names: [string, ...string[]];
+}
+
+export interface YdbAddColumnFamilyOperation {
+  kind: "add_column_family";
+  table: string | YdbTable;
+  family: Pick<YdbColumnFamily["config"], "name" | "options">;
+}
+
+export interface YdbAlterColumnFamilyOperation {
+  kind: "alter_column_family";
+  table: string | YdbTable;
+  name: string;
+  options: YdbColumnFamilyOptions;
+}
+
+export interface YdbSetColumnFamilyOperation {
+  kind: "set_column_family";
+  table: string | YdbTable;
+  familyName: string;
+  columns: [YdbColumn, ...YdbColumn[]] | [string, ...string[]];
+}
+
 export type YdbMigrationOperation =
   | YdbCreateTableOperation
   | YdbDropTableOperation
   | YdbAddColumnsOperation
   | YdbDropColumnsOperation
   | YdbAddIndexOperation
-  | YdbDropIndexOperation;
+  | YdbDropIndexOperation
+  | YdbSetTableOptionsOperation
+  | YdbResetTableOptionsOperation
+  | YdbAddColumnFamilyOperation
+  | YdbAlterColumnFamilyOperation
+  | YdbSetColumnFamilyOperation;
 
 export interface YdbInlineMigration {
   readonly name?: string;
@@ -81,6 +125,10 @@ function escapeString(value: string): string {
   return `'${value.replace(/'/g, "''")}'`;
 }
 
+function escapeDoubleQuoted(value: string): string {
+  return `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+}
+
 function getObjectName(value: string | YdbTable): string {
   return typeof value === "string" ? value : getTableName(value);
 }
@@ -96,10 +144,14 @@ function ensureSupportedColumn(column: YdbColumn): void {
   }
 }
 
-function renderColumnDefinition(column: YdbColumn): string {
+function renderColumnDefinition(column: YdbColumn, familyName?: string): string {
   ensureSupportedColumn(column);
 
   const parts = [escapeName(column.name), column.getSQLType()];
+  if (familyName) {
+    parts.push("FAMILY", escapeName(familyName));
+  }
+
   if ((column as any).notNull === true) {
     parts.push("NOT NULL");
   }
@@ -119,6 +171,146 @@ function getPrimaryKeyColumns(columns: readonly YdbColumn[], primaryKeys: readon
   }
 
   return inlinePrimaryKeys.length > 0 ? inlinePrimaryKeys : [...(primaryKeys[0]?.config.columns ?? [])];
+}
+
+function isRawTableOptionValue(value: YdbTableOptionValue): value is Extract<YdbTableOptionValue, { kind: "raw" }> {
+  return typeof value === "object" && value !== null && "kind" in value && value.kind === "raw";
+}
+
+function renderTableOptionValue(value: YdbTableOptionValue): string {
+  if (isRawTableOptionValue(value)) {
+    return value.value;
+  }
+
+  if (typeof value === "number") {
+    return String(value);
+  }
+
+  if (typeof value === "boolean") {
+    return value ? "TRUE" : "FALSE";
+  }
+
+  return value;
+}
+
+function renderTableOptions(options: Readonly<Record<string, YdbTableOptionValue>>): string[] {
+  return Object.entries(options).map(([key, value]) => `${key} = ${renderTableOptionValue(value)}`);
+}
+
+function renderTtl(ttl: YdbTtl): string {
+  const { column, actions, unit } = ttl.config;
+  const actionSql = actions.map((action) => {
+    const interval = `Interval(${escapeDoubleQuoted(action.interval)})`;
+
+    if ("externalDataSource" in action) {
+      return `${interval} TO EXTERNAL DATA SOURCE ${escapeName(action.externalDataSource)}`;
+    }
+
+    return action.delete === true ? `${interval} DELETE` : interval;
+  }).join(", ");
+  const unitSql = unit ? ` AS ${unit}` : "";
+
+  return `${actionSql} ON ${escapeName(column.name)}${unitSql}`;
+}
+
+function collectWithOptions(tableOptions: readonly YdbTableOptions[], ttls: readonly YdbTtl[]): string[] {
+  const rendered: string[] = [];
+  const used = new Set<string>();
+
+  for (const tableOption of tableOptions) {
+    for (const [key, value] of Object.entries(tableOption.config.options)) {
+      if (used.has(key)) {
+        throw new Error(`YDB migrate() duplicate table option "${key}"`);
+      }
+      used.add(key);
+      rendered.push(`${key} = ${renderTableOptionValue(value)}`);
+    }
+  }
+
+  if (ttls.length > 1) {
+    throw new Error("YDB migrate() supports only one TTL definition per table");
+  }
+
+  if (ttls.length === 1) {
+    if (used.has("TTL")) {
+      throw new Error('YDB migrate() duplicate table option "TTL"');
+    }
+    rendered.push(`TTL = ${renderTtl(ttls[0]!)}`);
+  }
+
+  return rendered;
+}
+
+function renderColumnFamilyOptions(options: YdbColumnFamilyOptions): string[] {
+  const rendered: string[] = [];
+  if (options.data !== undefined) {
+    rendered.push(`DATA = ${escapeDoubleQuoted(options.data)}`);
+  }
+  if (options.compression !== undefined) {
+    rendered.push(`COMPRESSION = ${escapeDoubleQuoted(options.compression)}`);
+  }
+  if (options.compressionLevel !== undefined) {
+    rendered.push(`COMPRESSION_LEVEL = ${String(options.compressionLevel)}`);
+  }
+  return rendered;
+}
+
+function renderColumnFamilyAlterActions(name: string, options: YdbColumnFamilyOptions): string[] {
+  const familyName = escapeName(name);
+  const rendered: string[] = [];
+  if (options.data !== undefined) {
+    rendered.push(`ALTER FAMILY ${familyName} SET DATA ${escapeDoubleQuoted(options.data)}`);
+  }
+  if (options.compression !== undefined) {
+    rendered.push(`ALTER FAMILY ${familyName} SET COMPRESSION ${escapeDoubleQuoted(options.compression)}`);
+  }
+  if (options.compressionLevel !== undefined) {
+    rendered.push(`ALTER FAMILY ${familyName} SET COMPRESSION_LEVEL ${String(options.compressionLevel)}`);
+  }
+  return rendered;
+}
+
+function renderColumnFamilyDefinition(family: Pick<YdbColumnFamily["config"], "name" | "options">): string {
+  const options = renderColumnFamilyOptions(family.options);
+  return options.length > 0
+    ? `FAMILY ${escapeName(family.name)} (${options.join(", ")})`
+    : `FAMILY ${escapeName(family.name)}`;
+}
+
+function getColumnFamilyByColumnName(columnFamilies: readonly YdbColumnFamily[]): Map<string, string> {
+  const familyByColumn = new Map<string, string>();
+  const usedFamilyNames = new Set<string>();
+
+  for (const family of columnFamilies) {
+    if (usedFamilyNames.has(family.config.name)) {
+      throw new Error(`YDB migrate() duplicate column family "${family.config.name}"`);
+    }
+    usedFamilyNames.add(family.config.name);
+
+    for (const column of family.config.columns) {
+      const existing = familyByColumn.get(column.name);
+      if (existing) {
+        throw new Error(`YDB migrate() column "${column.name}" is assigned to both "${existing}" and "${family.config.name}" families`);
+      }
+
+      familyByColumn.set(column.name, family.config.name);
+    }
+  }
+
+  return familyByColumn;
+}
+
+function renderPartitioning(partitioning: ReturnType<typeof getTableConfig>["partitioning"]): string | undefined {
+  if (partitioning.length === 0) {
+    return undefined;
+  }
+
+  if (partitioning.length > 1) {
+    throw new Error("YDB migrate() supports only one PARTITION BY definition per table");
+  }
+
+  const partitioningConfig = partitioning[0]!.config;
+  return `PARTITION BY HASH(${partitioningConfig.columns.map((column) => escapeName(column.name)).join(", ")})`;
 }
 
 function renderIndexConfig(config: YdbIndexConfig): string {
@@ -182,25 +374,39 @@ export function buildMigrationTableBootstrapSql(config: YdbMigrationTableConfig 
 }
 
 export function buildCreateTableSql(table: YdbTableWithColumns, options: { ifNotExists?: boolean } = {}): string {
-  const { columns, indexes, primaryKeys, uniqueConstraints } = getTableConfig(table);
+  const { columns, indexes, primaryKeys, uniqueConstraints, tableOptions, partitioning, ttls, columnFamilies } = getTableConfig(table);
 
   const primaryKeyColumns = getPrimaryKeyColumns(columns, primaryKeys);
   if (primaryKeyColumns.length === 0) {
     throw new Error(`YDB migrate() CREATE TABLE requires a primary key for "${getTableName(table)}"`);
   }
 
+  const familyByColumnName = getColumnFamilyByColumnName(columnFamilies);
   const definitions = [
-    ...columns.map((column) => renderColumnDefinition(column)),
+    ...columns.map((column) => renderColumnDefinition(column, familyByColumnName.get(column.name))),
     ...indexes.map((index) => renderIndexConfig(index.config)),
     ...uniqueConstraints.map((constraint) => renderIndexConfig(uniqueConstraintToIndex(constraint))),
+    ...columnFamilies.map((family) => renderColumnFamilyDefinition(family.config)),
     `PRIMARY KEY (${primaryKeyColumns.map((column) => escapeName(column.name)).join(", ")})`,
   ];
+  const partitioningSql = renderPartitioning(partitioning);
+  const withOptions = collectWithOptions(tableOptions, ttls);
 
-  return [
+  const parts = [
     `CREATE TABLE ${options.ifNotExists ? "IF NOT EXISTS " : ""}${escapeName(getTableName(table))} (`,
     definitions.map((definition) => `  ${definition}`).join(",\n"),
     `)`,
-  ].join("\n");
+  ];
+
+  if (partitioningSql) {
+    parts.push(partitioningSql);
+  }
+
+  if (withOptions.length > 0) {
+    parts.push("WITH (", withOptions.map((option) => `  ${option}`).join(",\n"), ")");
+  }
+
+  return parts.join("\n");
 }
 
 export function buildDropTableSql(table: string | YdbTable, options: { ifExists?: boolean } = {}): string {
@@ -233,6 +439,53 @@ export function buildDropIndexSql(table: string | YdbTable, name: string): strin
   return `ALTER TABLE ${escapeName(getObjectName(table))} DROP INDEX ${escapeName(name)}`;
 }
 
+export function buildAlterTableSetOptionsSql(
+  table: string | YdbTable,
+  options: Readonly<Record<string, YdbTableOptionValue>>,
+): string {
+  const renderedOptions = renderTableOptions(options);
+  if (renderedOptions.length === 0) {
+    throw new Error("YDB migrate() ALTER TABLE SET requires at least one option");
+  }
+
+  return `ALTER TABLE ${escapeName(getObjectName(table))} SET (${renderedOptions.join(", ")})`;
+}
+
+export function buildAlterTableResetOptionsSql(table: string | YdbTable, names: [string, ...string[]]): string {
+  return `ALTER TABLE ${escapeName(getObjectName(table))} RESET (${names.join(", ")})`;
+}
+
+export function buildAddColumnFamilySql(
+  table: string | YdbTable,
+  family: Pick<YdbColumnFamily["config"], "name" | "options">,
+): string {
+  return `ALTER TABLE ${escapeName(getObjectName(table))} ADD ${renderColumnFamilyDefinition(family)}`;
+}
+
+export function buildAlterColumnFamilySql(
+  table: string | YdbTable,
+  name: string,
+  options: YdbColumnFamilyOptions,
+): string {
+  const actions = renderColumnFamilyAlterActions(name, options);
+  if (actions.length === 0) {
+    throw new Error("YDB migrate() ALTER FAMILY requires at least one option");
+  }
+
+  return `ALTER TABLE ${escapeName(getObjectName(table))} ${actions.join(", ")}`;
+}
+
+export function buildAlterColumnSetFamilySql(
+  table: string | YdbTable,
+  columns: [YdbColumn, ...YdbColumn[]] | [string, ...string[]],
+  familyName: string,
+): string[] {
+  return columns.map((column) => {
+    const columnName = typeof column === "string" ? column : column.name;
+    return `ALTER TABLE ${escapeName(getObjectName(table))} ALTER COLUMN ${escapeName(columnName)} SET FAMILY ${escapeName(familyName)}`;
+  });
+}
+
 export function buildMigrationSql(operations: readonly YdbMigrationOperation[]): string[] {
   const statements: string[] = [];
 
@@ -255,6 +508,21 @@ export function buildMigrationSql(operations: readonly YdbMigrationOperation[]):
         break;
       case "drop_index":
         statements.push(buildDropIndexSql(operation.table, operation.name));
+        break;
+      case "set_table_options":
+        statements.push(buildAlterTableSetOptionsSql(operation.table, operation.options));
+        break;
+      case "reset_table_options":
+        statements.push(buildAlterTableResetOptionsSql(operation.table, operation.names));
+        break;
+      case "add_column_family":
+        statements.push(buildAddColumnFamilySql(operation.table, operation.family));
+        break;
+      case "alter_column_family":
+        statements.push(buildAlterColumnFamilySql(operation.table, operation.name, operation.options));
+        break;
+      case "set_column_family":
+        statements.push(...buildAlterColumnSetFamilySql(operation.table, operation.columns, operation.familyName));
         break;
     }
   }

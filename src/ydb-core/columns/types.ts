@@ -1,23 +1,27 @@
-import { create } from "@bufbuild/protobuf";
 import * as Ydb from "@ydbjs/api/value";
-import { TypeKind } from "@ydbjs/value";
 import {
   Bool,
   Date as YdbDate,
   Datetime as YdbDatetime,
   Double as YdbDouble,
   Float as YdbFloat,
+  Int8 as YdbInt8,
+  Int16 as YdbInt16,
   Int64 as YdbInt64,
   Interval as YdbInterval,
   Json as YdbJson,
   JsonDocument as YdbJsonDocument,
+  Primitive,
+  PrimitiveType,
   Timestamp as YdbTimestamp,
+  Uint8 as YdbUint8,
+  Uint16 as YdbUint16,
   Uint32 as YdbUint32,
   Uint64 as YdbUint64,
   Uuid as YdbUuid,
   Yson as YdbYson,
 } from "@ydbjs/value/primitive";
-import { sql } from "drizzle-orm/sql/sql";
+import { sql as yql } from "drizzle-orm/sql/sql";
 import { customType } from "./custom.js";
 
 function escapeYqlString(value: string): string {
@@ -62,12 +66,48 @@ const booleanBase = customType<{ data: boolean; driverData: boolean | Bool }>({
   },
 });
 
+const int8Base = customType<{ data: number; driverData: YdbInt8 }>({
+  dataType() {
+    return "Int8";
+  },
+  toDriver(value) {
+    return new YdbInt8(value);
+  },
+});
+
+const int16Base = customType<{ data: number; driverData: YdbInt16 }>({
+  dataType() {
+    return "Int16";
+  },
+  toDriver(value) {
+    return new YdbInt16(value);
+  },
+});
+
 const bigintBase = customType<{ data: bigint; driverData: bigint | YdbInt64 }>({
   dataType() {
     return "Int64";
   },
   toDriver(value) {
     return new YdbInt64(value);
+  },
+});
+
+const uint8Base = customType<{ data: number; driverData: YdbUint8 }>({
+  dataType() {
+    return "Uint8";
+  },
+  toDriver(value) {
+    return new YdbUint8(value);
+  },
+});
+
+const uint16Base = customType<{ data: number; driverData: YdbUint16 }>({
+  dataType() {
+    return "Uint16";
+  },
+  toDriver(value) {
+    return new YdbUint16(value);
   },
 });
 
@@ -107,6 +147,21 @@ const doubleBase = customType<{ data: number; driverData: YdbDouble }>({
   },
 });
 
+const dyNumberBase = customType<{ data: string; driverData: Primitive }>({
+  dataType() {
+    return "DyNumber";
+  },
+  toDriver(value) {
+    return new Primitive(
+      { value: { case: "textValue", value } },
+      new PrimitiveType(Ydb.Type_PrimitiveTypeId.DYNUMBER),
+    );
+  },
+  fromDriver(value) {
+    return String(value);
+  },
+});
+
 const bytesBase = customType<{ data: Uint8Array; driverData: unknown }>({
   dataType() {
     return "String";
@@ -125,12 +180,36 @@ const dateBase = customType<{ data: Date; driverData: YdbDate }>({
   },
 });
 
+const date32Base = customType<{ data: Date; driverData: Primitive }>({
+  dataType() {
+    return "Date32";
+  },
+  toDriver(value) {
+    return new Primitive(
+      { value: { case: "int32Value", value: Math.floor(value.getTime() / 86400000) } },
+      new PrimitiveType(Ydb.Type_PrimitiveTypeId.DATE32),
+    );
+  },
+});
+
 const datetimeBase = customType<{ data: Date; driverData: YdbDatetime }>({
   dataType() {
     return "Datetime";
   },
   toDriver(value) {
     return new YdbDatetime(value);
+  },
+});
+
+const datetime64Base = customType<{ data: Date; driverData: Primitive }>({
+  dataType() {
+    return "Datetime64";
+  },
+  toDriver(value) {
+    return new Primitive(
+      { value: { case: "int64Value", value: BigInt(Math.floor(value.getTime() / 1000)) } },
+      new PrimitiveType(Ydb.Type_PrimitiveTypeId.DATETIME64),
+    );
   },
 });
 
@@ -143,12 +222,36 @@ const timestampBase = customType<{ data: Date; driverData: YdbTimestamp }>({
   },
 });
 
+const timestamp64Base = customType<{ data: Date; driverData: Primitive }>({
+  dataType() {
+    return "Timestamp64";
+  },
+  toDriver(value) {
+    return new Primitive(
+      { value: { case: "int64Value", value: BigInt(value.getTime()) * 1000n } },
+      new PrimitiveType(Ydb.Type_PrimitiveTypeId.TIMESTAMP64),
+    );
+  },
+});
+
 const intervalBase = customType<{ data: number; driverData: YdbInterval }>({
   dataType() {
     return "Interval";
   },
   toDriver(value) {
     return new YdbInterval(value);
+  },
+});
+
+const interval64Base = customType<{ data: bigint | number; driverData: Primitive }>({
+  dataType() {
+    return "Interval64";
+  },
+  toDriver(value) {
+    return new Primitive(
+      { value: { case: "int64Value", value: BigInt(value) } },
+      new PrimitiveType(Ydb.Type_PrimitiveTypeId.INTERVAL64),
+    );
   },
 });
 
@@ -177,8 +280,24 @@ export function boolean(name?: string) {
   return booleanBase(name as any);
 }
 
+export function int8(name?: string) {
+  return int8Base(name as any);
+}
+
+export function int16(name?: string) {
+  return int16Base(name as any);
+}
+
 export function bigint(name?: string) {
   return bigintBase(name as any);
+}
+
+export function uint8(name?: string) {
+  return uint8Base(name as any);
+}
+
+export function uint16(name?: string) {
+  return uint16Base(name as any);
 }
 
 export function uint32(name?: string) {
@@ -197,6 +316,10 @@ export function double(name?: string) {
   return doubleBase(name as any);
 }
 
+export function dyNumber(name?: string) {
+  return dyNumberBase(name as any);
+}
+
 export function bytes(name?: string) {
   return bytesBase(name as any);
 }
@@ -207,16 +330,32 @@ export function date(name?: string) {
   return dateBase(name as any);
 }
 
+export function date32(name?: string) {
+  return date32Base(name as any);
+}
+
 export function datetime(name?: string) {
   return datetimeBase(name as any);
+}
+
+export function datetime64(name?: string) {
+  return datetime64Base(name as any);
 }
 
 export function timestamp(name?: string) {
   return timestampBase(name as any);
 }
 
+export function timestamp64(name?: string) {
+  return timestamp64Base(name as any);
+}
+
 export function interval(name?: string) {
   return intervalBase(name as any);
+}
+
+export function interval64(name?: string) {
+  return interval64Base(name as any);
 }
 
 export function json<T = unknown>(name?: string) {
@@ -255,26 +394,45 @@ export function yson(name?: string) {
   return ysonBase(name as any);
 }
 
-export function decimal(name: string, precision: number, scale: number) {
+export function decimal(precision: number, scale: number): ReturnType<ReturnType<typeof customType<{
+  data: string;
+  driverData: string;
+}>>>;
+export function decimal(name: string, precision: number, scale: number): ReturnType<ReturnType<typeof customType<{
+  data: string;
+  driverData: string;
+}>>>;
+export function decimal(
+  nameOrPrecision: string | number,
+  precisionOrScale: number,
+  scaleOrUndefined?: number,
+) {
+  const name = typeof nameOrPrecision === "string" ? nameOrPrecision : "";
+  const precision = typeof nameOrPrecision === "string" ? precisionOrScale : nameOrPrecision;
+  const scale = typeof nameOrPrecision === "string" ? scaleOrUndefined : precisionOrScale;
+
+  if (scale === undefined) {
+    throw new Error("YDB decimal() requires precision and scale");
+  }
+
   return customType<{
     data: string;
     driverData: string;
-    config: YdbDecimalConfig;
   }>({
-    dataType(config) {
-      return `Decimal(${config.precision}, ${config.scale})`;
+    dataType() {
+      return `Decimal(${precision}, ${scale})`;
     },
     toDriver(value) {
       if (!/^-?\d+(?:\.\d+)?$/.test(value)) {
         throw new Error(`Invalid decimal value: ${value}`);
       }
 
-      return sql.raw(`Decimal(${escapeYqlString(value)}, ${precision}, ${scale})`);
+      return yql.raw(`Decimal(${escapeYqlString(value)}, ${precision}, ${scale})`);
     },
     fromDriver(value) {
       return String(value);
     },
-  })(name, { precision, scale });
+  })(name);
 }
 
 export { customType };

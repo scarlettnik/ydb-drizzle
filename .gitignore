@@ -20,7 +20,13 @@ dist-ssr
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
-.idea
+.idea/*
+!.idea/dictionaries/
+!.idea/dictionaries/ydb_drizzle_adapter.xml
+!.idea/inspectionProfiles/
+!.idea/inspectionProfiles/Project_Default.xml
+!.idea/inspectionProfiles/profiles_settings.xml
+!.idea/sqldialects.xml
 .DS_Store
 *.suo
 *.ntvs*

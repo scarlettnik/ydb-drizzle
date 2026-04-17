@@ -26,7 +26,7 @@ export class YdbColumnBuilder<
   TExtraConfig extends ColumnBuilderExtraConfig = ColumnBuilderExtraConfig,
 > extends ColumnBuilder<T, TRuntimeConfig, TTypeConfig & { dialect: "ydb" }, TExtraConfig>
   implements YdbColumnBuilderBase<T, TTypeConfig> {
-  static readonly [entityKind]: string = "YdbColumnBuilder";
+  static override readonly [entityKind]: string = "YdbColumnBuilder";
 
   unique(name?: string): this {
     this.config.isUnique = true;
@@ -34,7 +34,7 @@ export class YdbColumnBuilder<
     return this;
   }
 
-  generatedAlwaysAs(
+  override generatedAlwaysAs(
     _as: SQL | this["_"]["data"] | (() => SQL),
     _config?: { mode?: "virtual" | "stored" },
   ): any {
@@ -51,7 +51,7 @@ export class YdbColumn<
   TRuntimeConfig extends object = object,
   TTypeConfig extends object = object,
 > extends Column<T, TRuntimeConfig, TTypeConfig & { dialect: "ydb" }> {
-  static readonly [entityKind]: string = "YdbColumn";
+  static override readonly [entityKind]: string = "YdbColumn";
 
   constructor(table: Table, config: ColumnRuntimeConfig<T["data"], TRuntimeConfig>) {
     if (config.isUnique && !config.uniqueName) {
@@ -61,15 +61,15 @@ export class YdbColumn<
     super(table, config);
   }
 
-  getSQLType(): string {
+  override getSQLType(): string {
     return "unknown";
   }
 
-  mapFromDriverValue(value: T["driverParam"]): T["data"] {
+  override mapFromDriverValue(value: T["driverParam"]): T["data"] {
     return super.mapFromDriverValue(value) as T["data"];
   }
 
-  mapToDriverValue(value: T["data"]): T["driverParam"] {
+  override mapToDriverValue(value: T["data"]): T["driverParam"] {
     return super.mapToDriverValue(value) as T["driverParam"];
   }
 }

@@ -1,6 +1,17 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, sql as yql } from "drizzle-orm";
+import {
+  buildCreateTableSql,
+  columnFamily,
+  integer,
+  partitionByHash,
+  tableOptions,
+  text,
+  ttl,
+  uint32,
+  ydbTable,
+} from "../../src/index.js";
 import { createLiveContext } from "./helpers/context.js";
 import { posts, users } from "./helpers/schema.js";
 
@@ -48,12 +59,12 @@ test("insert select", async (t) => {
     await live.db.insert(users).values({ id: sourceId, name: "insert select source" });
 
     await live.db.insert(users).select((qb) => qb.select({
-      id: sql<number>`${copiedId}`.as("id"),
+      id: yql<number>`${copiedId}`.as("id"),
       name: users.name,
     }).from(users).where(eq(users.id, sourceId)));
 
     const rows = await live.db.select().from(users).where(
-      sql`${users.id} in (${sourceId}, ${copiedId})`,
+      yql`${users.id} in (${sourceId}, ${copiedId})`,
     ) as Array<{ id: number; name: string }>;
 
     assert.deepEqual(live.sortById(rows), [
@@ -85,7 +96,7 @@ test("onDuplicateKeyUpdate", async (t) => {
       .onDuplicateKeyUpdate({ set: { name: "should not win on insert" } });
 
     const rows = await live.db.select().from(users).where(
-      sql`${users.id} in (${existingId}, ${newId})`,
+      yql`${users.id} in (${existingId}, ${newId})`,
     ) as Array<{ id: number; name: string }>;
 
     assert.deepEqual(live.sortById(rows), [
@@ -96,6 +107,117 @@ test("onDuplicateKeyUpdate", async (t) => {
     assert.ok(live.liveQueryLog.some(({ query }) => query.includes("upsert into")));
   } finally {
     await live.deleteUserRows([existingId, newId]);
+  }
+});
+
+test("mutation returning", async (t) => {
+  if (!live.requireLiveYdb(t)) return;
+  live.describeDbChange(t, "exercise INSERT/UPSERT/UPDATE/DELETE RETURNING against the live users table");
+  const insertId = live.baseIntId + 421;
+  const upsertId = live.baseIntId + 422;
+  const deleteId = live.baseIntId + 423;
+
+  await live.deleteUserRows([insertId, upsertId, deleteId]);
+
+  try {
+    const inserted = await live.db.insert(users)
+      .values({ id: insertId, name: "returning insert" })
+      .returning({ id: users.id, name: users.name });
+    const upserted = await live.db.upsert(users)
+      .values({ id: upsertId, name: "returning upsert" })
+      .returning({ id: users.id, name: users.name });
+    const updated = await live.db.update(users)
+      .set({ name: "returning updated" })
+      .where(eq(users.id, insertId))
+      .returning({ id: users.id, name: users.name });
+
+    await live.db.insert(users).values({ id: deleteId, name: "returning delete" });
+    const deleted = await live.db.delete(users)
+      .where(eq(users.id, deleteId))
+      .returning({ id: users.id, name: users.name });
+
+    assert.deepEqual(inserted, [{ id: insertId, name: "returning insert" }]);
+    assert.deepEqual(upserted, [{ id: upsertId, name: "returning upsert" }]);
+    assert.deepEqual(updated, [{ id: insertId, name: "returning updated" }]);
+    assert.deepEqual(deleted, [{ id: deleteId, name: "returning delete" }]);
+  } finally {
+    await live.deleteUserRows([insertId, upsertId, deleteId]);
+  }
+});
+
+test("native set and batch mutations", async (t) => {
+  if (!live.requireLiveYdb(t)) return;
+  live.describeDbChange(t, "create a keyed temp table and exercise UPDATE ON, DELETE ON, BATCH UPDATE and BATCH DELETE");
+  const suffix = live.baseIntId + 431;
+  const tableName = `set_mutations_${suffix}`;
+  const keyedUsers = ydbTable(tableName, {
+    id: integer("id").notNull().primaryKey(),
+    name: text("name").notNull(),
+  });
+
+  await live.db.execute(yql.raw(`DROP TABLE IF EXISTS \`${tableName}\``));
+
+  try {
+    await live.db.execute(yql.raw(buildCreateTableSql(keyedUsers, { ifNotExists: true })));
+    await live.db.insert(keyedUsers).values([
+      { id: 1, name: "update target" },
+      { id: 2, name: "delete target" },
+      { id: 3, name: "batch target" },
+    ]);
+
+    const updated = await live.db.update(keyedUsers)
+      .on((qb) => qb.select({
+        id: keyedUsers.id,
+        name: yql<string>`${"set updated"}`.as("name"),
+      }).from(keyedUsers).where(eq(keyedUsers.id, 1)))
+      .returning({ id: keyedUsers.id, name: keyedUsers.name });
+    const deleted = await live.db.delete(keyedUsers)
+      .on((qb) => qb.select({ id: keyedUsers.id }).from(keyedUsers).where(eq(keyedUsers.id, 2)))
+      .returning({ id: keyedUsers.id });
+
+    await live.db.batchUpdate(keyedUsers).set({ name: "batch updated" }).where(eq(keyedUsers.id, 3));
+    const batchUpdated = await live.db.select().from(keyedUsers).where(eq(keyedUsers.id, 3));
+    await live.db.batchDelete(keyedUsers).where(eq(keyedUsers.id, 3));
+    const batchDeleted = await live.db.select().from(keyedUsers).where(eq(keyedUsers.id, 3));
+
+    assert.deepEqual(updated, [{ id: 1, name: "set updated" }]);
+    assert.deepEqual(deleted, [{ id: 2 }]);
+    assert.deepEqual(batchUpdated, [{ id: 3, name: "batch updated" }]);
+    assert.deepEqual(batchDeleted, []);
+  } finally {
+    await live.db.execute(yql.raw(`DROP TABLE IF EXISTS \`${tableName}\``));
+  }
+});
+
+test("advanced table DDL", async (t) => {
+  if (!live.requireLiveYdb(t)) return;
+  live.describeDbChange(t, "create a temp table with table options, partitioning, TTL and column-family DDL, then verify it accepts rows");
+  const suffix = live.baseIntId + 441;
+  const tableName = `advanced_ddl_${suffix}`;
+  const events = ydbTable(tableName, {
+    id: integer("id").notNull().primaryKey(),
+    payload: text("payload"),
+    expiresAt: uint32("expires_at").notNull(),
+  }, (table) => [
+    columnFamily("cold", { data: "rot", compression: "lz4" }).columns(table.payload),
+    partitionByHash(table.id),
+    ttl(table.expiresAt, "P1D", { unit: "SECONDS" }),
+    tableOptions({
+      AUTO_PARTITIONING_BY_SIZE: "ENABLED",
+      AUTO_PARTITIONING_PARTITION_SIZE_MB: 512,
+    }),
+  ]);
+
+  await live.db.execute(yql.raw(`DROP TABLE IF EXISTS \`${tableName}\``));
+
+  try {
+    await live.db.execute(yql.raw(buildCreateTableSql(events, { ifNotExists: true })));
+    await live.db.insert(events).values({ id: 1, payload: "advanced ddl", expiresAt: 4_102_444_800 });
+
+    const rows = await live.db.select().from(events).where(eq(events.id, 1));
+    assert.deepEqual(rows, [{ id: 1, payload: "advanced ddl", expiresAt: 4_102_444_800 }]);
+  } finally {
+    await live.db.execute(yql.raw(`DROP TABLE IF EXISTS \`${tableName}\``));
   }
 });
 

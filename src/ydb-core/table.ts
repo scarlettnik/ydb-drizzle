@@ -1,4 +1,4 @@
-import type { ColumnBuilderBaseConfig, MakeColumnConfig } from "drizzle-orm/column-builder";
+import type { MakeColumnConfig } from "drizzle-orm/column-builder";
 import { entityKind } from "drizzle-orm/entity";
 import { Table, type TableConfig as TableConfigBase, type UpdateTableConfig } from "drizzle-orm/table";
 import type { Assume, Simplify } from "drizzle-orm/utils";
@@ -6,6 +6,7 @@ import type { YdbColumn, YdbColumnBuilderBase } from "./columns/common.js";
 import type { YdbColumnBuilders } from "./columns/all.js";
 import type { YdbIndexBuilder } from "./indexes.js";
 import type { YdbPrimaryKeyBuilder } from "./primary-keys.js";
+import type { YdbColumnFamilyBuilder, YdbPartitioningBuilder, YdbTableOptionsBuilder, YdbTtlBuilder } from "./table-options.js";
 import type { YdbUniqueConstraintBuilder } from "./unique-constraint.js";
 import { getYdbColumnBuilders } from "./columns/all.js";
 
@@ -13,7 +14,7 @@ export type TableConfig = TableConfigBase<YdbColumn>;
 const drizzleTableSymbol = (Table as any).Symbol;
 
 export class YdbTable<T extends TableConfig = TableConfig> extends Table<T> {
-  static readonly [entityKind] = "YdbTable";
+  static override readonly [entityKind] = "YdbTable";
   static readonly Symbol = Object.assign({}, drizzleTableSymbol);
 }
 
@@ -43,6 +44,10 @@ export type YdbColumnsInput<TColumnsMap extends YdbColumnsMap = YdbColumnsMap> =
 export type YdbTableExtraConfigValue =
   | YdbIndexBuilder
   | YdbPrimaryKeyBuilder
+  | YdbTableOptionsBuilder
+  | YdbPartitioningBuilder
+  | YdbTtlBuilder
+  | YdbColumnFamilyBuilder
   | YdbUniqueConstraintBuilder;
 export type YdbTableExtraConfig = Record<string, YdbTableExtraConfigValue>;
 

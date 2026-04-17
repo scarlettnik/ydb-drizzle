@@ -18,11 +18,15 @@ import type {
 import type { YdbTable } from "./table.js";
 import {
   YdbCountBuilder,
+  YdbBatchDeleteBuilder,
+  YdbBatchUpdateBuilder,
   YdbDeleteBuilder,
   YdbInsertBuilder,
   YdbQueryBuilder,
   YdbRelationalQueryBuilder,
+  YdbReplaceBuilder,
   YdbSelectBuilder,
+  YdbUpsertBuilder,
   YdbUpdateBuilder,
 } from "./query-builders/index.js";
 
@@ -153,6 +157,14 @@ export class YdbDatabase<
       return new YdbInsertBuilder(table, self.session, self.dialect, queries);
     }
 
+    function upsert(table: YdbTable) {
+      return new YdbUpsertBuilder(table, self.session, self.dialect, queries);
+    }
+
+    function replace(table: YdbTable) {
+      return new YdbReplaceBuilder(table, self.session, self.dialect, queries);
+    }
+
     function update(table: YdbTable) {
       return new YdbUpdateBuilder(table, self.session, self.dialect, queries);
     }
@@ -166,6 +178,8 @@ export class YdbDatabase<
       selectDistinct,
       selectDistinctOn,
       insert,
+      upsert,
+      replace,
       update,
       delete: delete_,
     };
@@ -196,12 +210,28 @@ export class YdbDatabase<
     return new YdbInsertBuilder(table, this.session, this.dialect);
   }
 
+  upsert(table: YdbTable) {
+    return new YdbUpsertBuilder(table, this.session, this.dialect);
+  }
+
+  replace(table: YdbTable) {
+    return new YdbReplaceBuilder(table, this.session, this.dialect);
+  }
+
   update(table: YdbTable) {
     return new YdbUpdateBuilder(table, this.session, this.dialect);
   }
 
+  batchUpdate(table: YdbTable) {
+    return new YdbBatchUpdateBuilder(table, this.session, this.dialect);
+  }
+
   delete(table: YdbTable) {
     return new YdbDeleteBuilder(table, this.session, this.dialect);
+  }
+
+  batchDelete(table: YdbTable) {
+    return new YdbBatchDeleteBuilder(table, this.session, this.dialect);
   }
 
   transaction<T>(

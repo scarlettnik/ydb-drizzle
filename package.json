@@ -5,8 +5,20 @@
   "license": "ISC",
   "author": "",
   "type": "module",
-  "main": "index.js",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
   "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "prepack": "npm run build",
     "test": "node --import tsx --test tests/live/*.test.ts",
     "test:live": "node --import tsx --test tests/live/*.test.ts",
     "test:unit": "node --import tsx --test tests/unit/*.test.ts",

@@ -71,7 +71,7 @@ test("transaction", async () => {
   const borrowedDriver = Object.create(Driver.prototype) as Driver;
   const driver = new YdbDriver(borrowedDriver);
   const txQuery = createMockQueryFunction([{ ok: true }]);
-  const beginCalls: unknown[] = [];
+  const beginCalls: unknown[][] = [];
 
   (driver as any).client = {
     begin: async (...args: unknown[]) => {

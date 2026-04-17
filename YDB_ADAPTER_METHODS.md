@@ -77,8 +77,12 @@
 - [x] all(sql/sql-wrapper/query-builder)
 - [x] select(fields?)
 - [x] insert(table)
+- [x] upsert(table)
+- [x] replace(table)
 - [x] update(table)
+- [x] batchUpdate(table)
 - [x] delete(table)
+- [x] batchDelete(table)
 - [x] transaction(callback, config?)
 - [x] $with(alias).as(...)
 - [x] with(...ctes)
@@ -90,19 +94,21 @@
 - [x] typed schema-aware query property
 - [x] get(sql/sql-wrapper/query-builder)
 - [x] values(sql/sql-wrapper/query-builder)
-- [~] command/result helpers are aligned for read queries and builders, but mutation metadata is still reduced to `{ rows }` by the driver layer
+- [x] command/result helpers preserve driver metadata on row arrays via non-enumerable `rowCount`, `command`, and `meta` properties
 
 ### 5. Transactions
 
 **src/ydb-core/transaction.ts**
 - [x] constructor(dialect, session)
 - [x] rollback()
+- [x] nested transaction rejection with explicit error
 
 ### 6. Query Builders
 
 **Select: src/ydb-core/query-builders/select.ts**
 - [x] constructor(session, fields?)
 - [x] from(table)
+- [x] select without `from(...)` for expression-only YQL selects
 - [x] where(where)
 - [x] getSQL()
 - [x] execute()
@@ -121,6 +127,7 @@
 - [x] rightJoin(...)
 - [x] fullJoin(...)
 - [x] crossJoin(...)
+- [x] YDB-specific joins: leftSemiJoin, rightSemiJoin, leftOnlyJoin, rightOnlyJoin, exclusionJoin
 - [x] set operators: union, unionAll, intersect, except //INTERSECT/EXCEPT are emulated in SQL
 
 **Insert: src/ydb-core/query-builders/insert.ts**
@@ -136,9 +143,10 @@
 - [x] prepare(name?)
 - [x] select(selectQuery)
 - [x] onDuplicateKeyUpdate(...) //adapter-side emulation on top of valid YDB `UPSERT INTO ... SELECT`
-- [ ] returning(...)
-- [ ] native `UPSERT INTO` builder
-- [ ] native `REPLACE INTO` builder
+- [x] returning(...)
+- [x] native `UPSERT INTO` builder
+- [x] native `REPLACE INTO` builder
+- [x] `replace().returning(...)` is present as an explicit unsupported-method rejection because YDB docs do not document `REPLACE ... RETURNING`
 
 **Update: src/ydb-core/query-builders/update.ts**
 - [x] constructor(table, session)
@@ -151,8 +159,18 @@
 - [x] rejects empty update sets
 - [x] toSQL()
 - [x] prepare(name?)
-- [ ] on(selectQuery) //YDB-native set-based `UPDATE ... ON`
-- [ ] returning(...)
+- [x] on(selectQuery) //YDB-native set-based `UPDATE ... ON`
+- [x] returning(...)
+
+**Batch Update: src/ydb-core/query-builders/update.ts**
+- [x] constructor(table, session)
+- [x] set(values)
+- [x] where(where)
+- [x] getSQL()
+- [x] execute()
+- [x] toSQL()
+- [x] prepare(name?)
+- [x] rejects unsupported returning()/on() methods
 
 **Delete: src/ydb-core/query-builders/delete.ts**
 - [x] constructor(table, session)
@@ -162,8 +180,17 @@
 - [x] toSQL()
 - [x] prepare(name?)
 - [x] using(...) //adapter-side emulation via `where exists (...)`
-- [ ] on(selectQuery) //YDB-native set-based `DELETE ... ON`
-- [ ] returning(...)
+- [x] on(selectQuery) //YDB-native set-based `DELETE ... ON`
+- [x] returning(...)
+
+**Batch Delete: src/ydb-core/query-builders/delete.ts**
+- [x] constructor(table, session)
+- [x] where(where)
+- [x] getSQL()
+- [x] execute()
+- [x] toSQL()
+- [x] prepare(name?)
+- [x] rejects unsupported returning()/on()/using() methods
 
 **Additional builders**
 - [x] YdbCountBuilder
@@ -195,17 +222,26 @@
 - [x] integer() / int()
 - [x] text()
 - [x] boolean()
+- [x] int8()
+- [x] int16()
 - [x] bigint()
+- [x] uint8()
+- [x] uint16()
 - [x] uint32()
 - [x] uint64()
 - [x] float()
 - [x] double()
+- [x] dyNumber()
 - [x] decimal(precision, scale)
 - [x] bytes() / binary()
 - [x] date()
+- [x] date32()
 - [x] datetime()
+- [x] datetime64()
 - [x] timestamp()
+- [x] timestamp64()
 - [x] interval()
+- [x] interval64()
 - [x] json()
 - [x] jsonDocument()
 - [x] uuid()
@@ -214,6 +250,7 @@
 
 **Constraints / indexes**
 - [x] index(...)
+- [x] indexView(table, indexName, alias?)
 - [x] uniqueIndex(...)
 - [x] primaryKey(...)
 - [x] unique(...)
@@ -223,7 +260,7 @@
 - [x] relations(table, config)
 - [x] one(...)
 - [x] many(...)
-- [x] schema extraction from config.schema
+- [x] schema extraction from `config.schema`
 - [x] db.query.<table>.findMany(...)
 - [x] db.query.<table>.findFirst(...)
 - [x] dialect relational SQL builder (buildRelationalQueryWithoutPK(...))
@@ -236,4 +273,4 @@
 - [x] SQL generation for table create/alter/drop
 - [x] index / constraint DDL generation
 - [x] integration contract with drizzle-kit or explicit adapter-side migrator
-- [ ] table options / partitioning / TTL / column-family DDL
+- [x] table options / partitioning / TTL / column-family DDL

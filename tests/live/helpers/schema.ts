@@ -32,12 +32,12 @@ function getSafeTableName(envName: string, fallback: string): string {
   return tableName;
 }
 
-export const ydbUrl = process.env.YDB_CONNECTION_STRING ?? "grpc://localhost:2136/local";
+export const ydbUrl = process.env["YDB_CONNECTION_STRING"] ?? "grpc://localhost:2136/local";
 export const usersTableName = getSafeTableName("YDB_TEST_TABLE", "adapter_test_users");
 export const postsTableName = getSafeTableName("YDB_POSTS_TEST_TABLE", "adapter_test_posts");
 export const typesTableName = getSafeTableName("YDB_TYPES_TEST_TABLE", "adapter_test_column_types");
-export const keepData = process.env.YDB_TEST_KEEP_DATA === "1";
-export const verbose = process.env.YDB_TEST_VERBOSE === "1";
+export const keepData = process.env["YDB_TEST_KEEP_DATA"] === "1";
+export const verbose = process.env["YDB_TEST_VERBOSE"] === "1";
 
 export const users = ydbTable(usersTableName, {
   id: integer("id").notNull(),

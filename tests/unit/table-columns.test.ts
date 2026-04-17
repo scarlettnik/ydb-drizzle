@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { getTableName, Table } from "drizzle-orm/table";
-import { sql } from "drizzle-orm";
+import { sql as yql } from "drizzle-orm";
 import { customType, integer, text, uuid, ydbTable, ydbTableCreator } from "../../src/index.js";
 import { getYdbColumnBuilders, ydbColumnBuilders } from "../../src/ydb-core/columns/all.js";
 import { YdbColumn } from "../../src/ydb-core/columns/common.js";
@@ -21,12 +21,14 @@ const typedTable = ydbTable("typed_table", {
   meta: text("meta").notNull().$type<{ level: number }>(),
 });
 
-type _typedColumnId = Assert<Equal<typeof typedTable.id["_"]["data"], 1 | 2>>;
-type _typedColumnPayload = Assert<Equal<typeof typedTable.payload["_"]["data"], { pony: string }>>;
-type _typedSelectId = Assert<Equal<typeof typedTable.$inferSelect.id, 1 | 2>>;
-type _typedSelectPayload = Assert<Equal<typeof typedTable.$inferSelect.payload, { pony: string } | null>>;
-type _typedSelectMeta = Assert<Equal<typeof typedTable.$inferSelect.meta, { level: number }>>;
-type _typedInsertPayload = Assert<Equal<Exclude<typeof typedTable.$inferInsert.payload, undefined>, { pony: string } | null>>;
+export type _TypedTableAssertions = [
+  Assert<Equal<typeof typedTable.id["_"]["data"], 1 | 2>>,
+  Assert<Equal<typeof typedTable.payload["_"]["data"], { pony: string }>>,
+  Assert<Equal<typeof typedTable.$inferSelect.id, 1 | 2>>,
+  Assert<Equal<typeof typedTable.$inferSelect.payload, { pony: string } | null>>,
+  Assert<Equal<typeof typedTable.$inferSelect.meta, { level: number }>>,
+  Assert<Equal<Exclude<typeof typedTable.$inferInsert.payload, undefined>, { pony: string } | null>>,
+];
 
 void typedTable;
 
@@ -115,7 +117,7 @@ test("column builder metadata", () => {
 
 test("generatedAlwaysAs is rejected for YDB columns", () => {
   assert.throws(
-    () => integer("id").generatedAlwaysAs(() => sql`1`),
+    () => integer("id").generatedAlwaysAs(() => yql`1`),
     /generatedAlwaysAs\(\) is not supported/u,
   );
 });

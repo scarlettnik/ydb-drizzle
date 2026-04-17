@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createTableRelationsHelpers, extractTablesRelationalConfig } from "drizzle-orm/relations";
-import { eq, sql } from "drizzle-orm";
+import { eq, sql as yql } from "drizzle-orm";
 import { WithSubquery } from "drizzle-orm/subquery";
 import { YdbDialect, YdbDriver } from "../../src/index.js";
 import { orderSelectedFields } from "../../src/ydb-core/result-mapping.js";
@@ -16,7 +16,7 @@ test("driver execute and transaction preserve direct result metadata on live YDB
 
   const dialect = new YdbDialect();
   const driver = live.db.$client as YdbDriver;
-  const query = dialect.sqlToQuery(sql`select ${1} as ${sql.identifier("value")}`);
+  const query = dialect.sqlToQuery(yql`select ${1} as ${yql.identifier("value")}`);
 
   const executeResult = await driver.execute(query.sql, query.params, "execute", {
     typings: query.typings,
@@ -60,11 +60,11 @@ test("dialect helper queries execute on live YDB", async (t) => {
     });
 
     const cte = new WithSubquery(
-      sql`select ${userId} as ${sql.identifier("id")}, ${"Starlight Glimmer"} as ${sql.identifier("name")}`,
+      yql`select ${userId} as ${yql.identifier("id")}, ${"Starlight Glimmer"} as ${yql.identifier("name")}`,
       { id: users.id, name: users.name } as any,
       "seed_user",
     );
-    const cteQuery = dialect.sqlToQuery(sql`${dialect.buildWithCTE([cte])}select * from ${sql.identifier("seed_user")}`);
+    const cteQuery = dialect.sqlToQuery(yql`${dialect.buildWithCTE([cte])}select * from ${yql.identifier("seed_user")}`);
     const cteResult = await driver.execute(cteQuery.sql, cteQuery.params, "execute", {
       typings: cteQuery.typings,
     });
@@ -80,7 +80,7 @@ test("dialect helper queries execute on live YDB", async (t) => {
       tableConfig: (tablesConfig.tables as any).users,
       queryConfig: {
         columns: { id: true, name: true },
-        where: (fields, operators) => operators.eq(fields.id, userId),
+        where: (fields, operators) => operators.eq(fields["id"], userId),
         limit: 1,
       },
       tableAlias: "users_live",
@@ -142,12 +142,12 @@ test("direct dialect helper wrappers execute on live YDB", async (t) => {
     const fields = orderSelectedFields({ userId: users.id, postTitle: posts.title });
     const selectionAliases = ["user_id_alias", "post_title_alias"];
     const mappedOrderBy = dialect.mapExpressionsToSelectionAliases(
-      [users.id, sql`${posts.title} desc`],
+      [users.id, yql`${posts.title} desc`],
       fields,
       selectionAliases,
       "orderBy()",
     );
-    const helperQuery = dialect.sqlToQuery(sql`select ${
+    const helperQuery = dialect.sqlToQuery(yql`select ${
       dialect.buildSelection(fields, selectionAliases)
     } from ${
       dialect.buildFromTable(users)

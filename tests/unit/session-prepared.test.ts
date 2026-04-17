@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { TransactionRollbackError } from "drizzle-orm/errors";
-import { sql } from "drizzle-orm";
+import { sql as yql } from "drizzle-orm";
 import { customType, drizzle, integer, text, YdbDialect, YdbSession, ydbTable } from "../../src/index.js";
 import { orderSelectedFields } from "../../src/ydb-core/result-mapping.js";
 
@@ -27,7 +27,7 @@ test("prepareQuery", () => {
 
   const fields = orderSelectedFields({ id: users.id, name: users.name });
   const prepared = session.prepareQuery(
-    sql`select ${1} as ${sql.identifier("id")}`,
+    yql`select ${1} as ${yql.identifier("id")}`,
     fields,
     "select_users",
     true,
@@ -58,7 +58,7 @@ test("prepared rows", async () => {
     },
   });
 
-  const prepared = session.prepareQuery(sql`select ${1} as id, ${"Twilight Sparkle"} as name`, fields, undefined, false);
+  const prepared = session.prepareQuery(yql`select ${1} as id, ${"Twilight Sparkle"} as name`, fields, undefined, false);
 
   const allRows = await prepared.all();
   const oneRow = await prepared.get();
@@ -78,16 +78,31 @@ test("prepared rows", async () => {
 
 test("prepared execute", async () => {
   const session = new YdbSession({
-    async execute(_query, _params, _method, options) {
-      return { rows: options?.arrayMode ? [[1, "Rarity"]] : [{ id: 1, name: "Rarity" }] };
+    async execute(_query, _params, method, options) {
+      return {
+        rows: options?.arrayMode ? [[1, "Rarity"]] : [{ id: 1, name: "Rarity" }],
+        rowCount: 1,
+        command: method,
+        meta: { arrayMode: options?.arrayMode === true },
+      };
     },
   }, dialect);
 
-  const rawPrepared = session.prepareQuery(sql`select ${1}`, undefined, undefined, false);
-  const arrayPrepared = session.prepareQuery(sql`select ${1}`, undefined, undefined, true);
+  const rawPrepared = session.prepareQuery(yql`select ${1}`, undefined, undefined, false);
+  const arrayPrepared = session.prepareQuery(yql`select ${1}`, undefined, undefined, true);
 
   assert.deepEqual(await rawPrepared.execute(), [{ id: 1, name: "Rarity" }]);
-  assert.deepEqual(await arrayPrepared.execute(), [[1, "Rarity"]]);
+  type RowsWithMeta = unknown[][] & {
+    rowCount?: number;
+    command?: string;
+    meta?: { arrayMode: boolean };
+  };
+  const arrayRows: RowsWithMeta = await arrayPrepared.execute() as any;
+
+  assert.equal(arrayRows.rowCount, 1);
+  assert.equal(arrayRows.command, "execute");
+  assert.deepEqual(arrayRows.meta, { arrayMode: true });
+  assert.deepEqual(arrayRows, [[1, "Rarity"]]);
 });
 
 test("prepared get", async () => {
@@ -98,7 +113,7 @@ test("prepared get", async () => {
   }, dialect);
 
   const prepared = session.prepareQuery(
-    sql`select ${1} as id, ${"Pinkie Pie"} as name`,
+    yql`select ${1} as id, ${"Pinkie Pie"} as name`,
     orderSelectedFields({ id: users.id, name: users.name }),
     undefined,
     true,
@@ -128,7 +143,7 @@ test("prepared rows decode object results with column codecs", async () => {
     },
   }, dialect);
 
-  const prepared = session.prepareQuery(sql.raw("select 1"), fields, undefined, false);
+  const prepared = session.prepareQuery(yql.raw("select 1"), fields, undefined, false);
 
   assert.deepEqual(await prepared.all(), [{ id: 1, slug: "rainbow-dash" }]);
 });
@@ -142,7 +157,7 @@ test("prepareQuery passes ordered rows and mapColumnValue to customResultMapper"
   }, dialect);
 
   const prepared = session.prepareQuery(
-    sql.raw("select 1"),
+    yql.raw("select 1"),
     fields,
     undefined,
     false,
@@ -160,8 +175,8 @@ test("prepareQuery passes ordered rows and mapColumnValue to customResultMapper"
 
 test("session helpers", async () => {
   const calls: Array<{ method: string; arrayMode?: boolean; query: string }> = [];
-  const rowsQuery = sql`select ${7} as ${sql.identifier("id")}, ${"Applejack"} as ${sql.identifier("name")}`;
-  const countQuery = sql`select count(*) as ${sql.identifier("count")} from ${sql.identifier("users")}`;
+  const rowsQuery = yql`select ${7} as ${yql.identifier("id")}, ${"Applejack"} as ${yql.identifier("name")}`;
+  const countQuery = yql`select count(*) as ${yql.identifier("count")} from ${yql.identifier("users")}`;
   const session = new YdbSession({
     async execute(query, _params, method, options) {
       calls.push({ method, arrayMode: options?.arrayMode, query });
@@ -216,7 +231,7 @@ test("session helpers with builders", async () => {
     },
   });
 
-  const selectBuilder = db.select().from(users).where(sql`${users.id} = ${1}`);
+  const selectBuilder = db.select().from(users).where(yql`${users.id} = ${1}`);
   const insertBuilder = db.insert(users).values({ id: 1, name: "Rainbow Dash" });
 
   assert.deepEqual(
@@ -271,7 +286,7 @@ test("session transaction", async () => {
   }, dialect);
 
   const committed = await session.transaction(async (tx) => {
-    await tx.execute(sql`select ${1}`);
+    await tx.execute(yql`select ${1}`);
     return "ok";
   }, { accessMode: "read only" });
 

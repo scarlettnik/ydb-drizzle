@@ -30,4 +30,8 @@ export class YdbTransaction<
   rollback(): never {
     throw new TransactionRollbackError();
   }
+
+  override transaction(): never {
+    throw new Error("Nested YDB transactions are not supported");
+  }
 }

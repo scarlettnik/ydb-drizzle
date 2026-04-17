@@ -3,6 +3,16 @@ import { Table } from "drizzle-orm/table";
 import type { YdbColumn } from "./columns/common.js";
 import { YdbIndexBuilder, type YdbIndex } from "./indexes.js";
 import { YdbPrimaryKeyBuilder, type YdbPrimaryKey } from "./primary-keys.js";
+import {
+  YdbColumnFamilyBuilder,
+  type YdbColumnFamily,
+  YdbPartitioningBuilder,
+  type YdbPartitioning,
+  YdbTableOptionsBuilder,
+  type YdbTableOptions,
+  YdbTtlBuilder,
+  type YdbTtl,
+} from "./table-options.js";
 import { YdbTable, type YdbTableExtraConfigValue, type YdbTableWithColumns } from "./table.js";
 import { YdbUniqueConstraintBuilder, type YdbUniqueConstraint } from "./unique-constraint.js";
 const drizzleTableSymbol = (Table as any).Symbol;
@@ -13,6 +23,10 @@ export interface YdbTableRuntimeConfig {
   readonly indexes: readonly YdbIndex[];
   readonly primaryKeys: readonly YdbPrimaryKey[];
   readonly uniqueConstraints: readonly YdbUniqueConstraint[];
+  readonly tableOptions: readonly YdbTableOptions[];
+  readonly partitioning: readonly YdbPartitioning[];
+  readonly ttls: readonly YdbTtl[];
+  readonly columnFamilies: readonly YdbColumnFamily[];
 }
 
 function normalizeExtraConfig(
@@ -34,6 +48,10 @@ export function getTableConfig(table: YdbTableWithColumns): YdbTableRuntimeConfi
   const indexes: YdbIndex[] = [];
   const primaryKeys: YdbPrimaryKey[] = [];
   const uniqueConstraints: YdbUniqueConstraint[] = [];
+  const tableOptions: YdbTableOptions[] = [];
+  const partitioning: YdbPartitioning[] = [];
+  const ttls: YdbTtl[] = [];
+  const columnFamilies: YdbColumnFamily[] = [];
 
   const extraConfigBuilder = (table as any)[YdbTable.Symbol.ExtraConfigBuilder] as
     | ((self: YdbTableWithColumns) => YdbTableExtraConfigValue[] | Record<string, YdbTableExtraConfigValue>)
@@ -45,6 +63,14 @@ export function getTableConfig(table: YdbTableWithColumns): YdbTableRuntimeConfi
       indexes.push(builder.build(table));
     } else if (is(builder, YdbPrimaryKeyBuilder)) {
       primaryKeys.push(builder.build(table));
+    } else if (is(builder, YdbTableOptionsBuilder)) {
+      tableOptions.push(builder.build(table));
+    } else if (is(builder, YdbPartitioningBuilder)) {
+      partitioning.push(builder.build(table));
+    } else if (is(builder, YdbTtlBuilder)) {
+      ttls.push(builder.build(table));
+    } else if (is(builder, YdbColumnFamilyBuilder)) {
+      columnFamilies.push(builder.build(table));
     } else if (is(builder, YdbUniqueConstraintBuilder)) {
       uniqueConstraints.push(builder.build(table));
     }
@@ -72,5 +98,9 @@ export function getTableConfig(table: YdbTableWithColumns): YdbTableRuntimeConfi
     indexes,
     primaryKeys,
     uniqueConstraints,
+    tableOptions,
+    partitioning,
+    ttls,
+    columnFamilies,
   };
 }

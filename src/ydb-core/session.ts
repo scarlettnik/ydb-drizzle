@@ -4,7 +4,7 @@ import { NoopLogger, type Logger } from "drizzle-orm/logger";
 import type { RelationalSchemaConfig, TablesRelationalConfig } from "drizzle-orm/relations";
 import type { QueryWithTypings, SQL, SQLWrapper } from "drizzle-orm/sql/sql";
 import type { YdbDialect } from "../ydb/dialect.js";
-import type { YdbExecuteOptions, YdbExecutor, YdbTransactionalExecutor } from "../ydb/driver.js";
+import type { YdbExecuteOptions, YdbExecutor, YdbQueryResult, YdbTransactionalExecutor } from "../ydb/driver.js";
 import type { YdbTransactionConfig } from "../ydb/driver.js";
 import { mapResultRow, rowToArray, type YdbSelectedFieldsOrdered } from "./result-mapping.js";
 import type {
@@ -68,6 +68,28 @@ function findTransactionRollbackError(error: unknown): TransactionRollbackError 
   return undefined;
 }
 
+function attachResultMeta(rows: unknown[], result: YdbQueryResult): unknown[] {
+  Object.defineProperties(rows, {
+    rowCount: {
+      configurable: true,
+      enumerable: false,
+      value: result.rowCount,
+    },
+    command: {
+      configurable: true,
+      enumerable: false,
+      value: result.command,
+    },
+    meta: {
+      configurable: true,
+      enumerable: false,
+      value: result.meta,
+    },
+  });
+
+  return rows;
+}
+
 export class YdbPreparedQuery<T extends YdbPreparedQueryConfig = YdbPreparedQueryConfig> {
   static readonly [entityKind] = "YdbPreparedQuery";
 
@@ -119,7 +141,7 @@ export class YdbPreparedQuery<T extends YdbPreparedQueryConfig = YdbPreparedQuer
 
     this.logger.logQuery(this.query.sql, this.query.params);
     const result = await this.client.execute(this.query.sql, this.query.params, method, options);
-    return result.rows;
+    return attachResultMeta(result.rows, result);
   }
 
   async execute(): Promise<T["execute"]> {

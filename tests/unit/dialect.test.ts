@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { sql } from "drizzle-orm";
+import { sql as yql } from "drizzle-orm";
 import { YdbDialect } from "../../src/index.js";
 
 test("dialect", () => {
@@ -11,7 +11,7 @@ test("dialect", () => {
   assert.equal(dialect.escapeString("Pinkie's pie"), "'Pinkie''s pie'");
   assert.equal(dialect.prepareTyping(), "none");
 
-  const query = dialect.sqlToQuery(sql`select ${123} as ${sql.identifier("pony_id")}`);
+  const query = dialect.sqlToQuery(yql`select ${123} as ${yql.identifier("pony_id")}`);
   assert.equal(query.sql, "select $p0 as `pony_id`");
   assert.deepEqual(query.params, [123]);
   assert.deepEqual(query.typings, ["none"]);

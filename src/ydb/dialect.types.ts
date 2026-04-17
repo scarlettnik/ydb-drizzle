@@ -13,7 +13,17 @@ import type { YdbSelectedFieldsOrdered } from "../ydb-core/result-mapping.js";
 import type { YdbColumn } from "../ydb-core/columns/common.js";
 import type { YdbTable } from "../ydb-core/table.js";
 
-export type YdbJoinType = "inner" | "left" | "right" | "full" | "cross";
+export type YdbJoinType =
+  | "inner"
+  | "left"
+  | "right"
+  | "full"
+  | "cross"
+  | "left semi"
+  | "right semi"
+  | "left only"
+  | "right only"
+  | "exclusion";
 
 export interface YdbJoinConfig {
   table: unknown;
@@ -37,7 +47,7 @@ export interface YdbSetOperatorConfig {
 }
 
 export interface YdbSelectConfig {
-  table: unknown;
+  table?: unknown;
   fields: Record<string, unknown>;
   fieldsFlat?: YdbSelectedFieldsOrdered;
   withList?: Subquery[];
@@ -59,13 +69,19 @@ export interface YdbInsertConfig {
   values: Record<string, unknown>[] | SQL | SQLWrapper;
   select?: boolean;
   withList?: Subquery[];
+  command?: "insert" | "upsert" | "replace";
+  columnEntries?: Array<[string, YdbColumn]>;
+  returning?: YdbSelectedFieldsOrdered;
 }
 
 export interface YdbUpdateConfig {
   table: YdbTable;
-  set: UpdateSet | Record<string, unknown>;
+  set?: UpdateSet | Record<string, unknown>;
   where?: SQL;
   withList?: Subquery[];
+  on?: SQL | SQLWrapper;
+  returning?: YdbSelectedFieldsOrdered;
+  batch?: boolean;
 }
 
 export interface YdbDeleteConfig {
@@ -73,6 +89,9 @@ export interface YdbDeleteConfig {
   where?: SQL;
   using?: SQLWrapper[];
   withList?: Subquery[];
+  on?: SQL | SQLWrapper;
+  returning?: YdbSelectedFieldsOrdered;
+  batch?: boolean;
 }
 
 export type YdbFlatRelationalQueryConfig = DBQueryConfig<"many", boolean>;

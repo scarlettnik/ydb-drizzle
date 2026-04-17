@@ -92,13 +92,13 @@ test("relational builder handles flat findMany/findFirst queries", async () => {
 
   const many = await relational.findMany({
     columns: { id: true, name: true },
-    where: (fields, { eq }) => eq(fields.id, 1),
-    orderBy: (fields, { desc }) => desc(fields.name),
+    where: (fields, { eq }) => eq(fields["id"], 1),
+    orderBy: (fields, { desc }) => desc(fields["name"]),
     limit: 5,
     offset: 2,
   }).execute();
   const first = await relational.findFirst({
-    where: (fields, { eq }) => eq(fields.id, 1),
+    where: (fields, { eq }) => eq(fields["id"], 1),
   }).execute();
 
   assert.deepEqual(many, [{ id: 1, name: "Pinkie Pie" }, { id: 2, name: "Rainbow Dash" }]);

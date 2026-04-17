@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { eq, sql } from "drizzle-orm";
+import { eq, sql as yql } from "drizzle-orm";
 import { drizzle, YdbDriver } from "../../src/index.js";
 import { createLiveContext } from "./helpers/context.js";
 import { liveSchema, users, usersTableName } from "./helpers/schema.js";
@@ -10,7 +10,7 @@ const live = createLiveContext();
 test("createDrizzle inputs", async (t) => {
   if (!live.requireLiveYdb(t)) return;
   live.describeDbChange(t, "no persistent data change; verifies that connection-string and callback inputs execute against the same live database");
-  const connectionDb = drizzle({ connectionString: process.env.YDB_CONNECTION_STRING ?? "grpc://localhost:2136/local", schema: liveSchema });
+  const connectionDb = drizzle({ connectionString: process.env["YDB_CONNECTION_STRING"] ?? "grpc://localhost:2136/local", schema: liveSchema });
   const callbackCalls: Array<{ query: string; method: string; params: unknown[] }> = [];
   const callbackDb = drizzle(async (query, params, method, options) => {
     callbackCalls.push({ query, method, params: [...params] });
@@ -21,10 +21,10 @@ test("createDrizzle inputs", async (t) => {
     await (connectionDb.$client as YdbDriver).ready?.();
 
     const connectionRows = await connectionDb.execute<Array<{ value: number }>>(
-      sql`select ${1} as ${sql.identifier("value")}`,
+      yql`select ${1} as ${yql.identifier("value")}`,
     );
     const callbackRows = await callbackDb.execute<Array<{ value: number }>>(
-      sql`select ${2} as ${sql.identifier("value")}`,
+      yql`select ${2} as ${yql.identifier("value")}`,
     );
 
     assert.deepEqual(connectionRows, [{ value: 1 }]);
@@ -50,7 +50,7 @@ test("builder CRUD", async (t) => {
     await live.db.insert(users).values([{ id: firstId, name: "rarity" }, { id: secondId, name: "applejack" }]);
 
     const inserted = live.sortById(
-      (await live.db.select().from(users).where(sql`${users.id} IN (${firstId}, ${secondId})`)) as Array<{
+      (await live.db.select().from(users).where(yql`${users.id} IN (${firstId}, ${secondId})`)) as Array<{
         id: number;
         name: string;
       }>,
@@ -64,7 +64,7 @@ test("builder CRUD", async (t) => {
     await live.db.update(users).set({ name: "rarity updated" }).where(eq(users.id, firstId));
     await live.db.delete(users).where(eq(users.id, secondId));
 
-    const remaining = (await live.db.select().from(users).where(sql`${users.id} IN (${firstId}, ${secondId})`)) as Array<{
+    const remaining = (await live.db.select().from(users).where(yql`${users.id} IN (${firstId}, ${secondId})`)) as Array<{
       id: number;
       name: string;
     }>;

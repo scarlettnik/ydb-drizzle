@@ -15,7 +15,7 @@ export class YdbIntegerBuilder extends YdbColumnBuilder {
 }
 
 export class YdbInteger extends YdbColumn {
-  getSQLType(): string {
+  override getSQLType(): string {
     return "Int32";
   }
 }

@@ -1,13 +1,13 @@
 import { Column } from "drizzle-orm/column";
 import { is } from "drizzle-orm/entity";
-import { SQL, sql, type SQLWrapper } from "drizzle-orm/sql/sql";
+import { SQL, sql as yql, type SQLChunk, type SQLWrapper } from "drizzle-orm/sql/sql";
 import { Subquery } from "drizzle-orm/subquery";
 import { Table } from "drizzle-orm/table";
 import { orderSelectedFields, type YdbSelectedFieldsOrdered } from "../ydb-core/result-mapping.js";
 import type { YdbJoinConfig, YdbSelectConfig, YdbSetOperatorConfig } from "./dialect.types.js";
 
 function qualifyIdentifier(tableAlias: string, columnName: string): SQL {
-  return sql`${sql.identifier(tableAlias)}.${sql.identifier(columnName)}`;
+  return yql`${yql.identifier(tableAlias)}.${yql.identifier(columnName)}`;
 }
 
 function findSelectionAlias(
@@ -35,11 +35,11 @@ function findSelectionAlias(
 }
 
 function mapChunkToSelectionAlias(
-  chunk: unknown,
+  chunk: SQLChunk,
   fields: YdbSelectedFieldsOrdered,
   selectionAliases: string[],
   context: string,
-): unknown {
+): SQLChunk {
   if (is(chunk, SQL)) {
     return new SQL(
       chunk.queryChunks.map((value) => mapChunkToSelectionAlias(value, fields, selectionAliases, context)),
@@ -53,7 +53,7 @@ function mapChunkToSelectionAlias(
       throw new Error(`YDB ${context} can only reference selected fields`);
     }
 
-    return sql.identifier(alias);
+    return yql.identifier(alias);
   }
 
   return chunk;
@@ -77,7 +77,7 @@ export function mapExpressionsToSelectionAliases(
         throw new Error(`YDB ${context} can only reference selected fields`);
       }
 
-      return sql.identifier(alias);
+      return yql.identifier(alias);
     }
 
     if (is(expression, SQL)) {
@@ -92,36 +92,60 @@ export function mapExpressionsToSelectionAliases(
 
 export function buildSelection(fields: YdbSelectedFieldsOrdered, aliases?: string[]): SQL {
   if (fields.length === 0) {
-    return sql.raw("*");
+    return yql.raw("*");
   }
 
   const selection = fields.map(({ field }, index) => {
     const alias = aliases?.[index];
 
     if (is(field, SQL.Aliased) && (field as any).isSelectionField) {
-      const base = sql.identifier(field.fieldAlias);
-      return alias ? sql`${base} as ${sql.identifier(alias)}` : base;
+      const base = yql.identifier(field.fieldAlias);
+      return alias ? yql`${base} as ${yql.identifier(alias)}` : base;
     }
 
     if (is(field, SQL.Aliased)) {
       return alias
-        ? sql`${field.sql} as ${sql.identifier(alias)}`
-        : sql`${field.sql} as ${sql.identifier(field.fieldAlias)}`;
+        ? yql`${field.sql} as ${yql.identifier(alias)}`
+        : yql`${field.sql} as ${yql.identifier(field.fieldAlias)}`;
     }
 
     if (is(field, Column) || is(field, SQL) || is(field, Subquery)) {
-      return alias ? sql`${field as SQLWrapper} as ${sql.identifier(alias)}` : sql`${field as SQLWrapper}`;
+      return alias ? yql`${field as SQLWrapper} as ${yql.identifier(alias)}` : yql`${field as SQLWrapper}`;
     }
 
-    return alias ? sql`${field as SQLWrapper} as ${sql.identifier(alias)}` : sql`${field as SQLWrapper}`;
+    return alias ? yql`${field as SQLWrapper} as ${yql.identifier(alias)}` : yql`${field as SQLWrapper}`;
   });
 
-  return sql.join(selection, sql`, `);
+  return yql.join(selection, yql`, `);
+}
+
+export function buildReturningSelection(fields: YdbSelectedFieldsOrdered): SQL {
+  if (fields.length === 0) {
+    return yql.raw("*");
+  }
+
+  const selection = fields.map(({ field }) => {
+    if (is(field, SQL.Aliased) && (field as any).isSelectionField) {
+      return yql.identifier(field.fieldAlias);
+    }
+
+    if (is(field, SQL.Aliased)) {
+      return yql`${field.sql} as ${yql.identifier(field.fieldAlias)}`;
+    }
+
+    if (is(field, Column)) {
+      return yql.identifier(field.name);
+    }
+
+    return yql`${field as SQLWrapper}`;
+  });
+
+  return yql.join(selection, yql`, `);
 }
 
 export function buildFromTable(table: unknown): SQLWrapper {
   if (is(table, Table) && (table as any)[(Table as any).Symbol.IsAlias]) {
-    return sql`${sql.identifier((table as any)[(Table as any).Symbol.OriginalName])} ${sql.identifier((table as any)[(Table as any).Symbol.Name])}`;
+    return yql`${yql.identifier((table as any)[(Table as any).Symbol.OriginalName])} ${yql.identifier((table as any)[(Table as any).Symbol.Name])}`;
   }
 
   return table as SQLWrapper;
@@ -133,17 +157,17 @@ export function buildJoins(joins: YdbJoinConfig[] | undefined): SQL | undefined 
   }
 
   const joinsSql = joins.map((join) => {
-    const onSql = join.on ? sql` on ${join.on}` : undefined;
-    const joinKeyword = sql.raw(`${join.joinType} join`);
+    const onSql = join.on ? yql` on ${join.on}` : undefined;
+    const joinKeyword = yql.raw(`${join.joinType} join`);
 
     if (is(join.table, Table) && (join.table as any)[(Table as any).Symbol.IsAlias]) {
-      return sql`${joinKeyword} ${sql.identifier((join.table as any)[(Table as any).Symbol.OriginalName])} ${sql.identifier((join.table as any)[(Table as any).Symbol.Name])}${onSql}`;
+      return yql`${joinKeyword} ${yql.identifier((join.table as any)[(Table as any).Symbol.OriginalName])} ${yql.identifier((join.table as any)[(Table as any).Symbol.Name])}${onSql}`;
     }
 
-    return sql`${joinKeyword} ${join.table as SQLWrapper}${onSql}`;
+    return yql`${joinKeyword} ${join.table as SQLWrapper}${onSql}`;
   });
 
-  return sql` ${sql.join(joinsSql, sql` `)}`;
+  return yql` ${yql.join(joinsSql, yql` `)}`;
 }
 
 export function buildOrderBy(orderBy: SQLWrapper[] | undefined): SQL | undefined {
@@ -151,40 +175,41 @@ export function buildOrderBy(orderBy: SQLWrapper[] | undefined): SQL | undefined
     return undefined;
   }
 
-  return sql` order by ${sql.join(orderBy.map((value) => sql`${value}`), sql`, `)}`;
+  return yql` order by ${yql.join(orderBy.map((value) => yql`${value}`), yql`, `)}`;
 }
 
 export function buildLimit(limit: number | undefined): SQL | undefined {
-  return limit !== undefined ? sql` limit ${limit}` : undefined;
+  return limit !== undefined ? yql` limit ${limit}` : undefined;
 }
 
 export function buildOffset(offset: number | undefined): SQL | undefined {
-  return offset !== undefined ? sql` offset ${offset}` : undefined;
+  return offset !== undefined ? yql` offset ${offset}` : undefined;
 }
 
 function buildSimpleSelectQuery(
   config: Omit<YdbSelectConfig, "table" | "fields" | "fieldsFlat" | "setOperators"> & {
-    table: unknown;
+    table?: unknown;
     fieldsFlat: YdbSelectedFieldsOrdered;
     extraSelections?: SQL[];
   },
 ): SQL {
   const selection = buildSelection(config.fieldsFlat, config.selectionAliases);
   const allSelections = config.extraSelections && config.extraSelections.length > 0
-    ? sql`${selection}, ${sql.join(config.extraSelections, sql`, `)}`
+    ? yql`${selection}, ${yql.join(config.extraSelections, yql`, `)}`
     : selection;
   const joinsSql = buildJoins(config.joins);
-  const whereSql = config.where ? sql` where ${config.where}` : undefined;
+  const whereSql = config.where ? yql` where ${config.where}` : undefined;
   const groupBySql = config.groupBy && config.groupBy.length > 0
-    ? sql` group by ${sql.join(config.groupBy.map((value) => sql`${value}`), sql`, `)}`
+    ? yql` group by ${yql.join(config.groupBy.map((value) => yql`${value}`), yql`, `)}`
     : undefined;
-  const havingSql = config.having ? sql` having ${config.having}` : undefined;
+  const havingSql = config.having ? yql` having ${config.having}` : undefined;
   const orderBySql = buildOrderBy(config.orderBy);
   const limitSql = buildLimit(config.limit);
   const offsetSql = buildOffset(config.offset);
-  const distinctSql = config.distinct ? sql` distinct` : undefined;
+  const distinctSql = config.distinct ? yql` distinct` : undefined;
+  const fromSql = config.table === undefined ? undefined : yql` from ${buildFromTable(config.table)}`;
 
-  return sql`select${distinctSql} ${allSelections} from ${buildFromTable(config.table)}${joinsSql}${whereSql}${groupBySql}${havingSql}${orderBySql}${limitSql}${offsetSql}`;
+  return yql`select${distinctSql} ${allSelections}${fromSql}${joinsSql}${whereSql}${groupBySql}${havingSql}${orderBySql}${limitSql}${offsetSql}`;
 }
 
 function buildDistinctOnQuery(config: YdbSelectConfig, fieldsFlat: YdbSelectedFieldsOrdered, selectionAliases: string[]): SQL {
@@ -194,10 +219,10 @@ function buildDistinctOnQuery(config: YdbSelectConfig, fieldsFlat: YdbSelectedFi
 
   const distinctAlias = "__ydb_distinct_on";
   const rowNumberAlias = "__ydb_row_number";
-  const rowNumberSelection = sql`row_number() over (
-      partition by ${sql.join(config.distinctOn.map((value) => sql`${value}`), sql`, `)}
+  const rowNumberSelection = yql`row_number() over (
+      partition by ${yql.join(config.distinctOn.map((value) => yql`${value}`), yql`, `)}
       ${buildOrderBy(config.orderBy)}
-    ) as ${sql.identifier(rowNumberAlias)}`;
+    ) as ${yql.identifier(rowNumberAlias)}`;
 
   const innerQuery = buildSimpleSelectQuery({
     table: config.table,
@@ -214,10 +239,10 @@ function buildDistinctOnQuery(config: YdbSelectConfig, fieldsFlat: YdbSelectedFi
   const outerOrderBy = config.orderBy && config.orderBy.length > 0
     ? mapExpressionsToSelectionAliases(config.orderBy, fieldsFlat, selectionAliases, "distinctOn() orderBy()")
     : undefined;
-  const selection = sql.join(selectionAliases.map((alias) => sql.identifier(alias)), sql`, `);
-  const rowNumberFilter = sql`${qualifyIdentifier(distinctAlias, rowNumberAlias)} = 1`;
+  const selection = yql.join(selectionAliases.map((alias) => yql.identifier(alias)), yql`, `);
+  const rowNumberFilter = yql`${qualifyIdentifier(distinctAlias, rowNumberAlias)} = 1`;
 
-  return sql`select ${selection} from (${innerQuery}) as ${sql.identifier(distinctAlias)} where ${rowNumberFilter}${buildOrderBy(outerOrderBy)}${buildLimit(config.limit)}${buildOffset(config.offset)}`;
+  return yql`select ${selection} from (${innerQuery}) as ${yql.identifier(distinctAlias)} where ${rowNumberFilter}${buildOrderBy(outerOrderBy)}${buildLimit(config.limit)}${buildOffset(config.offset)}`;
 }
 
 function buildEmulatedSetOperationQuery(
@@ -231,23 +256,31 @@ function buildEmulatedSetOperationQuery(
 ): SQL {
   const leftAlias = "__ydb_left";
   const rightAlias = "__ydb_right";
-  const joinConditions = selectionAliases.map((alias) => sql`${qualifyIdentifier(leftAlias, alias)} = ${qualifyIdentifier(rightAlias, alias)}`);
-  const onSql = sql.join(joinConditions, sql` and `);
-  const selection = sql.join(
-    selectionAliases.map((alias) => sql`${qualifyIdentifier(leftAlias, alias)} as ${sql.identifier(alias)}`),
-    sql`, `,
+  const matchAlias = "__ydb_match";
+  const rightInputAlias = "__ydb_right_input";
+  const rightSelection = yql.join(
+    selectionAliases.map((alias) => yql`${qualifyIdentifier(rightInputAlias, alias)} as ${yql.identifier(alias)}`),
+    yql`, `,
+  );
+  const rightComparable = yql`select ${rightSelection}, 1 as ${yql.identifier(matchAlias)} from (${rightSelect}) as ${yql.identifier(rightInputAlias)}`;
+  const joinConditions = selectionAliases.map((alias) => {
+    const leftValue = qualifyIdentifier(leftAlias, alias);
+    const rightValue = qualifyIdentifier(rightAlias, alias);
+    return yql`(${leftValue} = ${rightValue} or (${leftValue} is null and ${rightValue} is null))`;
+  });
+  const onSql = yql.join(joinConditions, yql` and `);
+  const selection = yql.join(
+    selectionAliases.map((alias) => yql`${qualifyIdentifier(leftAlias, alias)} as ${yql.identifier(alias)}`),
+    yql`, `,
   );
   const joinSql = type === "intersect"
-    ? sql`inner join (${rightSelect}) as ${sql.identifier(rightAlias)} on ${onSql}`
-    : sql`left join (${rightSelect}) as ${sql.identifier(rightAlias)} on ${onSql}`;
+    ? yql`inner join (${rightComparable}) as ${yql.identifier(rightAlias)} on ${onSql}`
+    : yql`left join (${rightComparable}) as ${yql.identifier(rightAlias)} on ${onSql}`;
   const whereSql = type === "except"
-    ? sql` where ${sql.join(
-      selectionAliases.map((alias) => sql`${qualifyIdentifier(rightAlias, alias)} is null`),
-      sql` and `,
-    )}`
+    ? yql` where ${qualifyIdentifier(rightAlias, matchAlias)} is null`
     : undefined;
 
-  return sql`select distinct ${selection} from (${leftSelect}) as ${sql.identifier(leftAlias)} ${joinSql}${whereSql}${buildOrderBy(orderBy)}${buildLimit(limit)}${buildOffset(offset)}`;
+  return yql`select distinct ${selection} from (${leftSelect}) as ${yql.identifier(leftAlias)} ${joinSql}${whereSql}${buildOrderBy(orderBy)}${buildLimit(limit)}${buildOffset(offset)}`;
 }
 
 export function buildSetOperationQuery(
@@ -267,8 +300,8 @@ export function buildSetOperationQuery(
     : undefined;
 
   if (setOperator.type === "union") {
-    const operator = sql.raw(`union${setOperator.isAll ? " all" : ""}`);
-    return sql`${leftSelect} ${operator} ${rightSelect}${buildOrderBy(mappedOrderBy)}${buildLimit(setOperator.limit)}${buildOffset(setOperator.offset)}`;
+    const operator = yql.raw(`union${setOperator.isAll ? " all" : ""}`);
+    return yql`${leftSelect} ${operator} ${rightSelect}${buildOrderBy(mappedOrderBy)}${buildLimit(setOperator.limit)}${buildOffset(setOperator.offset)}`;
   }
 
   return buildEmulatedSetOperationQuery(

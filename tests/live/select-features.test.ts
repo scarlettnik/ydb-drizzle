@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { desc, eq, sql } from "drizzle-orm";
+import { desc, eq, sql as yql } from "drizzle-orm";
 import { createLiveContext } from "./helpers/context.js";
 import { posts, users } from "./helpers/schema.js";
 
@@ -38,7 +38,7 @@ test("advanced select clauses", async (t) => {
     const groupedUsers = await live.db.select({ userId: posts.userId })
       .from(posts)
       .groupBy(posts.userId)
-      .having(sql`count(*) > ${1}`)
+      .having(yql`count(*) > ${1}`)
       .orderBy(posts.userId);
     const pagedPosts = await live.db.select({ id: posts.id, title: posts.title })
       .from(posts)
@@ -103,7 +103,7 @@ test("joins and set operators", async (t) => {
       .where(eq(users.id, thirdUserId));
     const unionRows = await live.db.select({ value: users.name })
       .from(users)
-      .where(sql`${users.id} in (${firstUserId}, ${secondUserId})`)
+      .where(yql`${users.id} in (${firstUserId}, ${secondUserId})`)
       .union(
         live.db.select({ value: users.name }).from(users).where(eq(users.id, thirdUserId)),
       )
@@ -117,13 +117,13 @@ test("joins and set operators", async (t) => {
       .orderBy((fields: { value: unknown }) => fields.value as any);
     const intersectRows = await live.db.select({ value: users.name })
       .from(users)
-      .where(sql`${users.id} in (${firstUserId}, ${secondUserId})`)
+      .where(yql`${users.id} in (${firstUserId}, ${secondUserId})`)
       .intersect(
-        live.db.select({ value: users.name }).from(users).where(sql`${users.id} in (${secondUserId}, ${thirdUserId})`),
+        live.db.select({ value: users.name }).from(users).where(yql`${users.id} in (${secondUserId}, ${thirdUserId})`),
       );
     const exceptRows = await live.db.select({ value: users.name })
       .from(users)
-      .where(sql`${users.id} in (${firstUserId}, ${thirdUserId})`)
+      .where(yql`${users.id} in (${firstUserId}, ${thirdUserId})`)
       .except(
         live.db.select({ value: users.name }).from(users).where(eq(users.id, secondUserId)),
       );

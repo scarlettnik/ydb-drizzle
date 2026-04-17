@@ -1,4 +1,5 @@
 import { entityKind } from "drizzle-orm/entity";
+import { sql as yql, type SQL } from "drizzle-orm/sql/sql";
 import { getTableName } from "drizzle-orm/table";
 import type { YdbColumn } from "./columns/common.js";
 import type { YdbTable } from "./table.js";
@@ -125,4 +126,10 @@ export function index(name?: string): YdbIndexBuilderOn {
 
 export function uniqueIndex(name?: string): YdbIndexBuilderOn {
   return new YdbIndexBuilderOn(name, true);
+}
+
+export function indexView(table: YdbTable | string, indexName: string, alias?: string): SQL {
+  const tableSql = typeof table === "string" ? yql.identifier(table) : yql`${table}`;
+  const aliasSql = alias ? yql` as ${yql.identifier(alias)}` : undefined;
+  return yql`${tableSql} view ${yql.identifier(indexName)}${aliasSql}`;
 }

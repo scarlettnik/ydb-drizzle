@@ -1,5 +1,5 @@
 import { entityKind } from "drizzle-orm/entity";
-import { SQL, sql, type SQLWrapper } from "drizzle-orm/sql/sql";
+import { SQL, sql as yql, type SQLWrapper } from "drizzle-orm/sql/sql";
 import type { YdbSession } from "../session.js";
 
 export interface YdbCountBuilderParams {
@@ -9,7 +9,7 @@ export interface YdbCountBuilderParams {
 }
 
 export class YdbCountBuilder extends SQL<number> {
-  static readonly [entityKind] = "YdbCountBuilder";
+  static override readonly [entityKind] = "YdbCountBuilder";
   readonly [Symbol.toStringTag] = "YdbCountBuilder";
 
   private readonly session: Pick<YdbSession, "count">;
@@ -24,11 +24,11 @@ export class YdbCountBuilder extends SQL<number> {
   }
 
   static buildEmbeddedCount(source: SQLWrapper, filters?: SQL): SQL<number> {
-    return sql`(select count(*) from ${source}${sql.raw(" where ").if(filters)}${filters})`;
+    return yql`(select count(*) from ${source}${yql.raw(" where ").if(filters)}${filters})`;
   }
 
   static buildCount(source: SQLWrapper, filters?: SQL): SQL<number> {
-    return sql`select count(*) as count from ${source}${sql.raw(" where ").if(filters)}${filters}`;
+    return yql`select count(*) as count from ${source}${yql.raw(" where ").if(filters)}${filters}`;
   }
 
   then<TResult1 = number, TResult2 = never>(
