@@ -40,7 +40,7 @@ test("cte helpers and count builder", async (t) => {
 
     assert.equal(count, 1);
     assert.deepEqual(rows, [{ id: userId, name: userName }]);
-    assert.ok(live.liveQueryLog.some(({ query }) => query.startsWith("with `sq_users` as")));
+    assert.ok(live.liveQueryLog.some(({ query }) => query.startsWith("$sq_users = (select")));
     assert.ok(live.liveQueryLog.some(({ query }) => query.includes("select count(*) as count")));
   } finally {
     await live.deleteUserRows([userId]);
@@ -103,7 +103,7 @@ test("onDuplicateKeyUpdate", async (t) => {
       { id: existingId, name: "updated value" },
       { id: newId, name: "fresh value" },
     ]);
-    assert.ok(live.liveQueryLog.some(({ query }) => query.startsWith("with `__ydb_incoming` as")));
+    assert.ok(live.liveQueryLog.some(({ query }) => query.startsWith("$__ydb_incoming = (select")));
     assert.ok(live.liveQueryLog.some(({ query }) => query.includes("upsert into")));
   } finally {
     await live.deleteUserRows([existingId, newId]);
@@ -199,7 +199,7 @@ test("advanced table DDL", async (t) => {
     payload: text("payload"),
     expiresAt: uint32("expires_at").notNull(),
   }, (table) => [
-    columnFamily("cold", { data: "rot", compression: "lz4" }).columns(table.payload),
+    columnFamily("cold", { compression: "lz4" }).columns(table.payload),
     partitionByHash(table.id),
     ttl(table.expiresAt, "P1D", { unit: "SECONDS" }),
     tableOptions({
@@ -251,7 +251,7 @@ test("delete using", async (t) => {
 
     assert.deepEqual(remainingUsers, []);
     assert.deepEqual(remainingPosts, [{ id: postId, userId, title: "delete using post" }]);
-    assert.ok(live.liveQueryLog.some(({ query }) => query.includes("where exists (select 1 from")));
+    assert.ok(live.liveQueryLog.some(({ query }) => query.includes(" in (select ")));
   } finally {
     await live.deletePostRows([postId]);
     await live.deleteUserRows([userId]);

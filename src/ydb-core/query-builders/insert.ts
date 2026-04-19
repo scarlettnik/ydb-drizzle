@@ -56,6 +56,34 @@ function getProvidedColumnEntries(table: YdbTable, rows: InsertValues[], command
   return getInsertColumnEntries(table).filter(([key]) => keys.has(key));
 }
 
+function hasRuntimeInsertValue(column: YdbColumn): boolean {
+  return column.defaultFn !== undefined || column.default !== undefined || column.onUpdateFn !== undefined;
+}
+
+function getDefaultAwareInsertColumnEntries(table: YdbTable, rows: InsertValues[]): Array<[string, YdbColumn]> {
+  const explicitKeys = new Set<string>();
+  for (const row of rows) {
+    validateTableColumnKeys(table, row, "insert");
+    for (const key of Object.keys(row)) {
+      explicitKeys.add(key);
+    }
+  }
+
+  const entries = getInsertColumnEntries(table).filter(([key, column]) =>
+    explicitKeys.has(key) || hasRuntimeInsertValue(column)
+  );
+
+  for (const row of rows) {
+    for (const [key, column] of entries) {
+      if (!(key in row) && !hasRuntimeInsertValue(column)) {
+        throw new Error("YDB insert values must provide the same non-default columns for every row");
+      }
+    }
+  }
+
+  return entries;
+}
+
 function getSelectColumnEntries(
   table: YdbTable,
   fields: Record<string, unknown> | undefined,
@@ -93,7 +121,7 @@ abstract class YdbInsertLikeBuilder<TResult = unknown> extends QueryPromise<TRes
     protected readonly dialect: YdbDialect,
     protected readonly withList: Subquery[],
     protected readonly command: InsertCommand,
-    private readonly useAllInsertColumnsForValues: boolean,
+    private readonly valuesColumnMode: "all" | "provided" | "default-aware",
   ) {
     super();
   }
@@ -161,9 +189,11 @@ abstract class YdbInsertLikeBuilder<TResult = unknown> extends QueryPromise<TRes
     }
 
     const rows = this.getRows();
-    const columnEntries = this.useAllInsertColumnsForValues
+    const columnEntries = this.valuesColumnMode === "all"
       ? getInsertColumnEntries(this.table)
-      : getProvidedColumnEntries(this.table, rows, this.command);
+      : this.valuesColumnMode === "default-aware"
+        ? getDefaultAwareInsertColumnEntries(this.table, rows)
+        : getProvidedColumnEntries(this.table, rows, this.command);
 
     return this.dialect.buildInsertQuery({
       table: this.table,
@@ -207,7 +237,7 @@ export class YdbInsertBuilder<TResult = unknown> extends YdbInsertLikeBuilder<TR
     dialect = new YdbDialect(),
     withList: Subquery[] = [],
   ) {
-    super(table, session, dialect, withList, "insert", true);
+    super(table, session, dialect, withList, "insert", "default-aware");
   }
 
   returning(fields: Record<string, unknown> = getAllReturningFields(this.table)): this {
@@ -288,8 +318,8 @@ export class YdbInsertBuilder<TResult = unknown> extends YdbInsertLikeBuilder<TR
       : undefined;
 
     return yql`${withSql}upsert into ${this.table} (${columnList}) select ${mergedSelections} from ${
-      yql.identifier(incomingAlias)
-    } left join ${this.table} on ${joinSql}${returningSql}`;
+      yql.raw(`$${incomingAlias}`)
+    } as ${yql.identifier(incomingAlias)} left join ${this.table} on ${joinSql}${returningSql}`;
   }
 
   override getSQL(): SQLType {
@@ -313,7 +343,7 @@ export class YdbUpsertBuilder<TResult = unknown> extends YdbInsertLikeBuilder<TR
     dialect = new YdbDialect(),
     withList: Subquery[] = [],
   ) {
-    super(table, session, dialect, withList, "upsert", false);
+    super(table, session, dialect, withList, "upsert", "provided");
   }
 
   returning(fields: Record<string, unknown> = getAllReturningFields(this.table)): this {
@@ -328,7 +358,7 @@ export class YdbReplaceBuilder<TResult = unknown> extends YdbInsertLikeBuilder<T
     dialect = new YdbDialect(),
     withList: Subquery[] = [],
   ) {
-    super(table, session, dialect, withList, "replace", true);
+    super(table, session, dialect, withList, "replace", "all");
   }
 
   returning(): never {

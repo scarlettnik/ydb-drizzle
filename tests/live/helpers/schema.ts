@@ -40,12 +40,12 @@ export const keepData = process.env["YDB_TEST_KEEP_DATA"] === "1";
 export const verbose = process.env["YDB_TEST_VERBOSE"] === "1";
 
 export const users = ydbTable(usersTableName, {
-  id: integer("id").notNull(),
+  id: integer("id").notNull().primaryKey(),
   name: text("name").notNull(),
 });
 
 export const posts = ydbTable(postsTableName, {
-  id: integer("id").notNull(),
+  id: integer("id").notNull().primaryKey(),
   userId: integer("user_id").notNull(),
   title: text("title").notNull(),
 });
@@ -62,7 +62,7 @@ export const postsRelations = relations(posts, ({ one }) => ({
 }));
 
 export const typesTable = ydbTable(typesTableName, {
-  id: uint64("id").notNull(),
+  id: uint64("id").notNull().primaryKey(),
   flag: boolean("flag"),
   signed64: bigint("signed64"),
   u32: uint32("u32"),

@@ -27,6 +27,9 @@ async function main() {
       )
     `));
 
+    await db.delete(demoUsers).where(yql`${demoUsers.id} = ${1}`);
+    await db.delete(demoUsers).where(yql`${demoUsers.id} = ${2}`);
+
     await db.transaction(async (tx) => {
       await tx.insert(demoUsers).values({ id: 1, name: "Alice" });
       await tx.insert(demoUsers).values({ id: 2, name: "Bob" });

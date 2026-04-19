@@ -64,7 +64,7 @@ test("dialect helper queries execute on live YDB", async (t) => {
       { id: users.id, name: users.name } as any,
       "seed_user",
     );
-    const cteQuery = dialect.sqlToQuery(yql`${dialect.buildWithCTE([cte])}select * from ${yql.identifier("seed_user")}`);
+    const cteQuery = dialect.sqlToQuery(yql`${dialect.buildWithCTE([cte])}select * from ${dialect.buildFromTable(cte)}`);
     const cteResult = await driver.execute(cteQuery.sql, cteQuery.params, "execute", {
       typings: cteQuery.typings,
     });

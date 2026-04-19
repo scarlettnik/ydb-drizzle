@@ -37,7 +37,7 @@ import type {
   YdbUpdateConfig,
   YdbSelectConfig,
 } from "./dialect.types.js";
-import { getInsertColumnEntries, getTableColumns, resolveInsertValue, resolveUpdateValue, validateTableColumnKeys } from "../ydb-core/query-builders/utils.js";
+import { getInsertColumnEntries, getPrimaryColumnKeys, getTableColumns, resolveInsertValue, resolveUpdateValue, validateTableColumnKeys } from "../ydb-core/query-builders/utils.js";
 
 export interface YdbDialectConfig {
   casing?: Casing;
@@ -65,6 +65,14 @@ function isNumberValue(value: unknown): value is number {
 
 function deriveMigrationName(migration: YdbDialectMigration, index: number): string {
   return migration.name ?? `migration_${String(index + 1).padStart(4, "0")}`;
+}
+
+function yqlBindingName(alias: string): string {
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/u.test(alias)) {
+    throw new Error(`YDB CTE alias "${alias}" cannot be used as a YQL binding name`);
+  }
+
+  return `$${alias}`;
 }
 
 export class YdbDialect {
@@ -120,14 +128,11 @@ export class YdbDialect {
       return undefined;
     }
 
-    const withSqlChunks: SQL[] = [yql`with `];
-    for (const [index, query] of queries.entries()) {
-      withSqlChunks.push(yql`${yql.identifier(query._.alias)} as (${query._.sql})`);
-      if (index < queries.length - 1) {
-        withSqlChunks.push(yql`, `);
-      }
+    const withSqlChunks: SQL[] = [];
+    for (const query of queries) {
+      withSqlChunks.push(yql`${yql.raw(yqlBindingName(query._.alias))} = (${query._.sql}); `);
     }
-    withSqlChunks.push(yql` `);
+
     return yql.join(withSqlChunks);
   }
 
@@ -304,13 +309,32 @@ export class YdbDialect {
     }
 
     if (config.using && config.using.length > 0) {
-      const usingSql = yql.join(
-        config.using.map((table) => yql`${this.buildFromTable(table)}`),
-        yql`, `,
-      );
-      const existsWhereSql = config.where ? yql` where ${config.where}` : undefined;
+      const targetTable = config.table as Parameters<typeof getTableColumns>[0];
+      const columns = getTableColumns(targetTable);
+      const primaryColumns = getPrimaryColumnKeys(targetTable)
+        .map((key) => columns[key])
+        .filter((column): column is NonNullable<typeof column> => column !== undefined);
 
-      return yql`${withSql}delete from ${this.buildFromTable(config.table)} where exists (select 1 from ${usingSql}${existsWhereSql})${returningSql}`;
+      if (primaryColumns.length === 0) {
+        throw new Error("YDB delete().using() requires at least one primary key column");
+      }
+
+      const usingJoinsSql = yql.join(
+        config.using.map((table) => yql` cross join ${this.buildFromTable(table)}`),
+        yql``,
+      );
+      const innerWhereSql = config.where ? yql` where ${config.where}` : undefined;
+      const keySelection = yql.join(primaryColumns.map((column) => yql`${column}`), yql`, `);
+      const outerKey = primaryColumns.length === 1
+        ? yql`${primaryColumns[0]!}`
+        : yql`(${keySelection})`;
+      const innerKey = primaryColumns.length === 1
+        ? yql`${primaryColumns[0]!}`
+        : keySelection;
+
+      return yql`${withSql}delete from ${this.buildFromTable(config.table)} where ${outerKey} in (select ${innerKey} from ${
+        this.buildFromTable(config.table)
+      }${usingJoinsSql}${innerWhereSql})${returningSql}`;
     }
 
     const whereSql = config.where ? yql` where ${config.where}` : undefined;

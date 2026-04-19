@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { desc, eq, sql as yql } from "drizzle-orm";
 import { createLiveContext } from "./helpers/context.js";
-import { posts, users } from "./helpers/schema.js";
+import { posts, postsTableName, users, usersTableName } from "./helpers/schema.js";
 
 const live = createLiveContext();
 
@@ -34,19 +34,25 @@ test("advanced select clauses", async (t) => {
       { id: thirdPostId, userId: secondUserId, title: "Rainbow Dash" },
     ]);
 
-    const distinctNames = await live.db.selectDistinct({ name: users.name }).from(users).orderBy(users.name);
+    const distinctNames = await live.db.selectDistinct({ name: users.name })
+      .from(users)
+      .where(yql`${users.id} in (${firstUserId}, ${secondUserId}, ${thirdUserId})`)
+      .orderBy(users.name);
     const groupedUsers = await live.db.select({ userId: posts.userId })
       .from(posts)
+      .where(yql`${posts.id} in (${firstPostId}, ${secondPostId}, ${thirdPostId})`)
       .groupBy(posts.userId)
       .having(yql`count(*) > ${1}`)
       .orderBy(posts.userId);
     const pagedPosts = await live.db.select({ id: posts.id, title: posts.title })
       .from(posts)
+      .where(yql`${posts.id} in (${firstPostId}, ${secondPostId}, ${thirdPostId})`)
       .orderBy(posts.id)
       .limit(2)
       .offset(1);
     const distinctOnRows = await live.db.selectDistinctOn(posts.userId, { userId: posts.userId, title: posts.title })
       .from(posts)
+      .where(yql`${posts.id} in (${firstPostId}, ${secondPostId}, ${thirdPostId})`)
       .orderBy(posts.userId, desc(posts.title)) as Array<{ userId: number; title: string }>;
 
     assert.deepEqual(distinctNames, [{ name: "apple" }, { name: "berry" }]);
@@ -129,8 +135,8 @@ test("joins and set operators", async (t) => {
       );
 
     assert.deepEqual(leftJoined, [{
-      users: { id: thirdUserId, name: "berry" },
-      posts: null,
+      [usersTableName]: { id: thirdUserId, name: "berry" },
+      [postsTableName]: null,
     }]);
     assert.deepEqual(unionRows, [{ value: "apple" }, { value: "berry" }]);
     assert.deepEqual(unionAllRows, [{ value: "apple" }, { value: "apple" }]);

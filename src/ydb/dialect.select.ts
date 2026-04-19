@@ -10,6 +10,14 @@ function qualifyIdentifier(tableAlias: string, columnName: string): SQL {
   return yql`${yql.identifier(tableAlias)}.${yql.identifier(columnName)}`;
 }
 
+function yqlBindingName(alias: string): string {
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/u.test(alias)) {
+    throw new Error(`YDB CTE alias "${alias}" cannot be used as a YQL binding name`);
+  }
+
+  return `$${alias}`;
+}
+
 function findSelectionAlias(
   value: unknown,
   fields: YdbSelectedFieldsOrdered,
@@ -144,6 +152,16 @@ export function buildReturningSelection(fields: YdbSelectedFieldsOrdered): SQL {
 }
 
 export function buildFromTable(table: unknown): SQLWrapper {
+  if (is(table, Subquery)) {
+    const alias = table._.alias;
+
+    if (table._.isWith) {
+      return yql`${yql.raw(yqlBindingName(alias))} as ${yql.identifier(alias)}`;
+    }
+
+    return yql`(${table._.sql}) as ${yql.identifier(alias)}`;
+  }
+
   if (is(table, Table) && (table as any)[(Table as any).Symbol.IsAlias]) {
     return yql`${yql.identifier((table as any)[(Table as any).Symbol.OriginalName])} ${yql.identifier((table as any)[(Table as any).Symbol.Name])}`;
   }
@@ -266,7 +284,7 @@ function buildEmulatedSetOperationQuery(
   const joinConditions = selectionAliases.map((alias) => {
     const leftValue = qualifyIdentifier(leftAlias, alias);
     const rightValue = qualifyIdentifier(rightAlias, alias);
-    return yql`(${leftValue} = ${rightValue} or (${leftValue} is null and ${rightValue} is null))`;
+    return yql`${leftValue} = ${rightValue}`;
   });
   const onSql = yql.join(joinConditions, yql` and `);
   const selection = yql.join(

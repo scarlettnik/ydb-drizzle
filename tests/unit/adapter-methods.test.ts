@@ -21,8 +21,8 @@ test("db $with()/with() builds CTE-backed select queries", () => {
 
   const query = db.with(sq).select().from(sq).toSQL();
 
-  assert.ok(query.sql.startsWith("with `sq` as (select"));
-  assert.ok(query.sql.includes("select `sq`.`id`, `sq`.`name` from `sq`"));
+  assert.ok(query.sql.startsWith("$sq = (select"));
+  assert.ok(query.sql.includes("select `sq`.`id`, `sq`.`name` from $sq as `sq`"));
   assert.deepEqual(query.params, [1]);
 });
 
@@ -150,9 +150,10 @@ test("onDuplicateKeyUpdate sql", () => {
       .getSQL(),
   );
 
-  assert.ok(query.sql.startsWith("with `__ydb_incoming` as (select"));
+  assert.ok(query.sql.startsWith("$__ydb_incoming = (select"));
   assert.ok(query.sql.includes("upsert into `plain_users` (`id`, `name`) select"));
   assert.ok(query.sql.includes("case when `plain_users`.`id` is null then `__ydb_incoming`.`name` else $p2 end as `name`"));
+  assert.ok(query.sql.includes("from $__ydb_incoming as `__ydb_incoming`"));
   assert.deepEqual(query.params, [1, "insert value", "updated value"]);
 });
 
@@ -210,16 +211,20 @@ test("db exposes native batch mutation builders", () => {
 });
 
 test("delete using sql", () => {
+  const keyedUsers = ydbTable("keyed_users", {
+    id: integer("id").notNull().primaryKey(),
+    name: text("name").notNull(),
+  });
   const query = dialect.sqlToQuery(
-    new YdbDeleteBuilder(users, session, dialect)
+    new YdbDeleteBuilder(keyedUsers, session, dialect)
       .using(yql.identifier("posts"))
-      .where(yql`${users.id} = ${yql.identifier("posts")}.${yql.identifier("user_id")}`)
+      .where(yql`${keyedUsers.id} = ${yql.identifier("posts")}.${yql.identifier("user_id")}`)
       .getSQL(),
   );
 
   assert.equal(
     query.sql,
-    "delete from `users` where exists (select 1 from `posts` where `users`.`id` = `posts`.`user_id`)",
+    "delete from `keyed_users` where `keyed_users`.`id` in (select `keyed_users`.`id` from `keyed_users` cross join `posts` where `keyed_users`.`id` = `posts`.`user_id`)",
   );
   assert.deepEqual(query.params, []);
 });

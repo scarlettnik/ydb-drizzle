@@ -133,7 +133,7 @@ test("direct dialect set-operation helpers build single and chained set queries"
 
   assert.equal(
     chained.sql,
-    "select distinct `__ydb_left`.`__ydb_f0` as `__ydb_f0` from (select `users`.`name` as `__ydb_f0` from `users` where `users`.`id` = $p0 union all select `posts`.`title` as `__ydb_f0` from `posts` where `posts`.`user_id` = $p1) as `__ydb_left` left join (select `__ydb_right_input`.`__ydb_f0` as `__ydb_f0`, 1 as `__ydb_match` from (select `users`.`name` as `__ydb_f0` from `users` where `users`.`id` = $p2) as `__ydb_right_input`) as `__ydb_right` on (`__ydb_left`.`__ydb_f0` = `__ydb_right`.`__ydb_f0` or (`__ydb_left`.`__ydb_f0` is null and `__ydb_right`.`__ydb_f0` is null)) where `__ydb_right`.`__ydb_match` is null",
+    "select distinct `__ydb_left`.`__ydb_f0` as `__ydb_f0` from (select `users`.`name` as `__ydb_f0` from `users` where `users`.`id` = $p0 union all select `posts`.`title` as `__ydb_f0` from `posts` where `posts`.`user_id` = $p1) as `__ydb_left` left join (select `__ydb_right_input`.`__ydb_f0` as `__ydb_f0`, 1 as `__ydb_match` from (select `users`.`name` as `__ydb_f0` from `users` where `users`.`id` = $p2) as `__ydb_right_input`) as `__ydb_right` on `__ydb_left`.`__ydb_f0` = `__ydb_right`.`__ydb_f0` where `__ydb_right`.`__ydb_match` is null",
   );
   assert.deepEqual(chained.params, [1, 1, 2]);
 });
@@ -144,9 +144,9 @@ test("buildWithCTE, buildInsertQuery, buildUpdateSet, buildUpdateQuery and build
     { id: users.id } as any,
     "pony_cte",
   );
-  const withQuery = dialect.sqlToQuery(yql`${dialect.buildWithCTE([ponyCte])}select * from ${yql.identifier("pony_cte")}`);
+  const withQuery = dialect.sqlToQuery(yql`${dialect.buildWithCTE([ponyCte])}select * from ${yql.raw("$pony_cte")} as ${yql.identifier("pony_cte")}`);
 
-  assert.equal(withQuery.sql, "with `pony_cte` as (select $p0 as `id`) select * from `pony_cte`");
+  assert.equal(withQuery.sql, "$pony_cte = (select $p0 as `id`); select * from $pony_cte as `pony_cte`");
   assert.deepEqual(withQuery.params, [1]);
 
   const insertQuery = dialect.sqlToQuery(dialect.buildInsertQuery({

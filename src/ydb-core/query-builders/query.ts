@@ -437,7 +437,10 @@ export class YdbRelationalQuery<TResult> extends QueryPromise<TResult> {
       throw new Error(`YDB relational query selected zero fields for "${tableConfig.tsName}"`);
     }
 
-    const where = and(extraWhere, getWhereClause(tableConfig, config, tableAlias));
+    const where = and(
+      extraWhere ? mapColumnsInSQLToAlias(extraWhere, tableAlias) : undefined,
+      getWhereClause(tableConfig, config, tableAlias),
+    );
     const orderBy = getOrderByClause(tableConfig, config, tableAlias);
     const limit = applyLimit ? getLimitClause(config) : undefined;
     const offset = applyOffset ? getOffsetClause(config) : undefined;

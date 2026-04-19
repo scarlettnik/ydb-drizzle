@@ -181,11 +181,11 @@ test("distinctOn and set operators sql", () => {
   );
   assert.equal(
     intersectQuery.sql,
-    "select distinct `__ydb_left`.`__ydb_f0` as `__ydb_f0` from (select `users`.`name` as `__ydb_f0` from `users` where `users`.`id` = $p0) as `__ydb_left` inner join (select `__ydb_right_input`.`__ydb_f0` as `__ydb_f0`, 1 as `__ydb_match` from (select `posts`.`title` as `__ydb_f0` from `posts` where `posts`.`user_id` = $p1) as `__ydb_right_input`) as `__ydb_right` on (`__ydb_left`.`__ydb_f0` = `__ydb_right`.`__ydb_f0` or (`__ydb_left`.`__ydb_f0` is null and `__ydb_right`.`__ydb_f0` is null))",
+    "select distinct `__ydb_left`.`__ydb_f0` as `__ydb_f0` from (select `users`.`name` as `__ydb_f0` from `users` where `users`.`id` = $p0) as `__ydb_left` inner join (select `__ydb_right_input`.`__ydb_f0` as `__ydb_f0`, 1 as `__ydb_match` from (select `posts`.`title` as `__ydb_f0` from `posts` where `posts`.`user_id` = $p1) as `__ydb_right_input`) as `__ydb_right` on `__ydb_left`.`__ydb_f0` = `__ydb_right`.`__ydb_f0`",
   );
   assert.equal(
     exceptQuery.sql,
-    "select distinct `__ydb_left`.`__ydb_f0` as `__ydb_f0` from (select `users`.`name` as `__ydb_f0` from `users` where `users`.`id` = $p0) as `__ydb_left` left join (select `__ydb_right_input`.`__ydb_f0` as `__ydb_f0`, 1 as `__ydb_match` from (select `posts`.`title` as `__ydb_f0` from `posts` where `posts`.`user_id` = $p1) as `__ydb_right_input`) as `__ydb_right` on (`__ydb_left`.`__ydb_f0` = `__ydb_right`.`__ydb_f0` or (`__ydb_left`.`__ydb_f0` is null and `__ydb_right`.`__ydb_f0` is null)) where `__ydb_right`.`__ydb_match` is null",
+    "select distinct `__ydb_left`.`__ydb_f0` as `__ydb_f0` from (select `users`.`name` as `__ydb_f0` from `users` where `users`.`id` = $p0) as `__ydb_left` left join (select `__ydb_right_input`.`__ydb_f0` as `__ydb_f0`, 1 as `__ydb_match` from (select `posts`.`title` as `__ydb_f0` from `posts` where `posts`.`user_id` = $p1) as `__ydb_right_input`) as `__ydb_right` on `__ydb_left`.`__ydb_f0` = `__ydb_right`.`__ydb_f0` where `__ydb_right`.`__ydb_match` is null",
   );
   assert.deepEqual(unionQuery.params, [1, 1, 3]);
   assert.deepEqual(intersectQuery.params, [1, 1]);
