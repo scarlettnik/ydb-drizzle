@@ -49,9 +49,13 @@ export {
   buildDropColumnsSql,
   buildDropIndexSql,
   buildDropTableSql,
+  buildMigrationLockTableBootstrapSql,
   buildMigrationSql,
+  type YdbMigrationLockConfig,
   type YdbInlineMigration,
   type YdbMigrationOperation,
+  type YdbMigrationRecoveryConfig,
+  type YdbMigrationStatus,
 } from "./ydb/migration-ddl.js";
 export { primaryKey } from "./ydb-core/primary-keys.js";
 export { unique } from "./ydb-core/unique-constraint.js";

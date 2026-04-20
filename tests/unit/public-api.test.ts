@@ -21,6 +21,7 @@ import {
   buildAlterTableResetOptionsSql,
   buildAlterTableSetOptionsSql,
   buildCreateTableSql,
+  buildMigrationLockTableBootstrapSql,
 } from "../../src/ydb/migration-ddl.js";
 import { migrate } from "../../src/ydb/migrator.js";
 import { customType } from "../../src/ydb-core/columns/custom.js";
@@ -115,6 +116,7 @@ test("root public API re-exports runtime entry points", () => {
   assert.equal(publicApi.buildAlterColumnSetFamilySql, buildAlterColumnSetFamilySql);
   assert.equal(publicApi.buildAlterTableResetOptionsSql, buildAlterTableResetOptionsSql);
   assert.equal(publicApi.buildAlterTableSetOptionsSql, buildAlterTableSetOptionsSql);
+  assert.equal(publicApi.buildMigrationLockTableBootstrapSql, buildMigrationLockTableBootstrapSql);
   assert.equal(publicApi.migrate, migrate);
   assert.equal(publicApi.tableOptions, tableOptions);
   assert.equal(publicApi.rawTableOption, rawTableOption);

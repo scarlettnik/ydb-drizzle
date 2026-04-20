@@ -12,6 +12,7 @@ import type { UpdateSet } from "drizzle-orm/utils";
 import type { YdbSelectedFieldsOrdered } from "../ydb-core/result-mapping.js";
 import type { YdbColumn } from "../ydb-core/columns/common.js";
 import type { YdbTable } from "../ydb-core/table.js";
+import type { YdbMigrationTableConfig } from "./migration-ddl.js";
 
 export type YdbJoinType =
   | "inner"
@@ -110,9 +111,6 @@ export interface YdbRelationalQueryConfig {
 
 export type YdbRelationalQueryResult = BuildRelationalQueryResult<YdbTable, YdbColumn>;
 
-export interface YdbDialectMigrationConfig {
-  migrationsTable?: string;
-  migrationsSchema?: string;
-}
+export interface YdbDialectMigrationConfig extends YdbMigrationTableConfig {}
 
 export type YdbDialectMigration = MigrationMeta & { name?: string };

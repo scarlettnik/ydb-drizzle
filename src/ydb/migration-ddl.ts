@@ -17,6 +17,38 @@ import type { YdbUniqueConstraint } from "../ydb-core/unique-constraint.js";
 export interface YdbMigrationTableConfig {
   migrationsTable?: string;
   migrationsSchema?: string;
+  migrationsLockTable?: string;
+  migrationLock?: boolean | YdbMigrationLockConfig;
+  migrationRecovery?: YdbMigrationRecoveryConfig;
+}
+
+export interface YdbMigrationLockConfig {
+  table?: string;
+  key?: string;
+  ownerId?: string;
+  leaseMs?: number;
+  acquireTimeoutMs?: number;
+  retryIntervalMs?: number;
+}
+
+export interface YdbMigrationRecoveryConfig {
+  mode?: "fail" | "retry";
+  staleRunningAfterMs?: number;
+}
+
+export type YdbMigrationStatus = "running" | "applied" | "failed";
+
+export interface YdbMigrationHistoryRecord {
+  hash: string;
+  folderMillis: number;
+  name: string;
+  status: YdbMigrationStatus;
+  startedAt?: number;
+  finishedAt?: number;
+  error?: string;
+  ownerId?: string;
+  statementsTotal?: number;
+  statementsApplied?: number;
 }
 
 export interface YdbCreateTableOperation {
@@ -135,6 +167,12 @@ function getObjectName(value: string | YdbTable): string {
 
 function getMigrationTableName(config: YdbMigrationTableConfig): string {
   const tableName = config.migrationsTable ?? "__drizzle_migrations";
+  return config.migrationsSchema ? `${config.migrationsSchema}/${tableName}` : tableName;
+}
+
+function getMigrationLockTableName(config: YdbMigrationTableConfig): string {
+  const configuredTable = typeof config.migrationLock === "object" ? config.migrationLock.table : undefined;
+  const tableName = config.migrationsLockTable ?? configuredTable ?? `${config.migrationsTable ?? "__drizzle_migrations"}_lock`;
   return config.migrationsSchema ? `${config.migrationsSchema}/${tableName}` : tableName;
 }
 
@@ -368,7 +406,47 @@ export function buildMigrationTableBootstrapSql(config: YdbMigrationTableConfig 
     `  ${escapeName("hash")} Utf8 NOT NULL,`,
     `  ${escapeName("created_at")} Int64 NOT NULL,`,
     `  ${escapeName("name")} Utf8 NOT NULL,`,
+    `  ${escapeName("status")} Utf8,`,
+    `  ${escapeName("started_at")} Int64,`,
+    `  ${escapeName("finished_at")} Int64,`,
+    `  ${escapeName("error")} Utf8,`,
+    `  ${escapeName("owner_id")} Utf8,`,
+    `  ${escapeName("statements_total")} Uint32,`,
+    `  ${escapeName("statements_applied")} Uint32,`,
     `  PRIMARY KEY (${escapeName("hash")})`,
+    `)`,
+  ].join("\n");
+}
+
+export function buildMigrationHistoryMetadataProbeSql(config: YdbMigrationTableConfig = {}): string {
+  const migrationTableName = getMigrationTableName(config);
+  return `SELECT ${escapeName("status")} FROM ${escapeName(migrationTableName)} LIMIT 1`;
+}
+
+export function buildMigrationHistoryMetadataColumnSql(config: YdbMigrationTableConfig = {}): string[] {
+  const migrationTableName = escapeName(getMigrationTableName(config));
+  return [
+    `ALTER TABLE ${migrationTableName} ADD COLUMN ${escapeName("status")} Utf8`,
+    `ALTER TABLE ${migrationTableName} ADD COLUMN ${escapeName("started_at")} Int64`,
+    `ALTER TABLE ${migrationTableName} ADD COLUMN ${escapeName("finished_at")} Int64`,
+    `ALTER TABLE ${migrationTableName} ADD COLUMN ${escapeName("error")} Utf8`,
+    `ALTER TABLE ${migrationTableName} ADD COLUMN ${escapeName("owner_id")} Utf8`,
+    `ALTER TABLE ${migrationTableName} ADD COLUMN ${escapeName("statements_total")} Uint32`,
+    `ALTER TABLE ${migrationTableName} ADD COLUMN ${escapeName("statements_applied")} Uint32`,
+  ];
+}
+
+export function buildMigrationLockTableBootstrapSql(config: YdbMigrationTableConfig = {}): string {
+  const lockTableName = getMigrationLockTableName(config);
+
+  return [
+    `CREATE TABLE IF NOT EXISTS ${escapeName(lockTableName)} (`,
+    `  ${escapeName("lock_key")} Utf8 NOT NULL,`,
+    `  ${escapeName("owner_id")} Utf8 NOT NULL,`,
+    `  ${escapeName("acquired_at")} Int64 NOT NULL,`,
+    `  ${escapeName("heartbeat_at")} Int64 NOT NULL,`,
+    `  ${escapeName("expires_at")} Int64 NOT NULL,`,
+    `  PRIMARY KEY (${escapeName("lock_key")})`,
     `)`,
   ].join("\n");
 }
@@ -556,20 +634,125 @@ export function buildMigrationHistorySelectSql(config: YdbMigrationTableConfig =
   const migrationTableName = getMigrationTableName(config);
 
   return [
-    `SELECT ${escapeName("hash")}, ${escapeName("created_at")}, ${escapeName("name")}`,
+    `SELECT ${escapeName("hash")}, ${escapeName("created_at")}, ${escapeName("name")}, ${escapeName("status")},`,
+    `${escapeName("started_at")}, ${escapeName("finished_at")}, ${escapeName("error")}, ${escapeName("owner_id")},`,
+    `${escapeName("statements_total")}, ${escapeName("statements_applied")}`,
     `FROM ${escapeName(migrationTableName)}`,
     `ORDER BY ${escapeName("created_at")} DESC`,
   ].join(" ");
 }
 
+function renderNullableString(value: string | undefined): string {
+  return value === undefined ? "NULL" : escapeString(value);
+}
+
+function renderNullableNumber(value: number | undefined): string {
+  return value === undefined ? "NULL" : String(value);
+}
+
 export function buildMigrationHistoryInsertSql(
-  migration: Pick<YdbNormalizedMigration, "hash" | "folderMillis" | "name">,
+  migration: Pick<YdbNormalizedMigration, "hash" | "folderMillis" | "name"> | YdbMigrationHistoryRecord,
   config: YdbMigrationTableConfig = {},
 ): string {
   const migrationTableName = getMigrationTableName(config);
+  const record: YdbMigrationHistoryRecord = "status" in migration
+    ? migration
+    : {
+      hash: migration.hash,
+      folderMillis: migration.folderMillis,
+      name: migration.name,
+      status: "applied",
+    };
 
   return [
-    `UPSERT INTO ${escapeName(migrationTableName)} (${escapeName("hash")}, ${escapeName("created_at")}, ${escapeName("name")})`,
-    `VALUES (${escapeString(migration.hash)}, ${String(migration.folderMillis)}, ${escapeString(migration.name)})`,
+    `UPSERT INTO ${escapeName(migrationTableName)} (`,
+    [
+      escapeName("hash"),
+      escapeName("created_at"),
+      escapeName("name"),
+      escapeName("status"),
+      escapeName("started_at"),
+      escapeName("finished_at"),
+      escapeName("error"),
+      escapeName("owner_id"),
+      escapeName("statements_total"),
+      escapeName("statements_applied"),
+    ].join(", "),
+    `) VALUES (`,
+    [
+      escapeString(record.hash),
+      String(record.folderMillis),
+      escapeString(record.name),
+      escapeString(record.status),
+      renderNullableNumber(record.startedAt),
+      renderNullableNumber(record.finishedAt),
+      renderNullableString(record.error),
+      renderNullableString(record.ownerId),
+      renderNullableNumber(record.statementsTotal),
+      renderNullableNumber(record.statementsApplied),
+    ].join(", "),
+    `)`,
+  ].join(" ");
+}
+
+export function buildMigrationLockSelectSql(config: YdbMigrationTableConfig = {}, key = "migrate"): string {
+  const lockTableName = getMigrationLockTableName(config);
+
+  return [
+    `SELECT ${escapeName("owner_id")}, ${escapeName("expires_at")}`,
+    `FROM ${escapeName(lockTableName)}`,
+    `WHERE ${escapeName("lock_key")} = ${escapeString(key)}`,
+  ].join(" ");
+}
+
+export function buildMigrationLockUpsertSql(
+  config: YdbMigrationTableConfig = {},
+  lock: { key: string; ownerId: string; acquiredAt: number; heartbeatAt: number; expiresAt: number },
+): string {
+  const lockTableName = getMigrationLockTableName(config);
+
+  return [
+    `UPSERT INTO ${escapeName(lockTableName)} (`,
+    [
+      escapeName("lock_key"),
+      escapeName("owner_id"),
+      escapeName("acquired_at"),
+      escapeName("heartbeat_at"),
+      escapeName("expires_at"),
+    ].join(", "),
+    `) VALUES (`,
+    [
+      escapeString(lock.key),
+      escapeString(lock.ownerId),
+      String(lock.acquiredAt),
+      String(lock.heartbeatAt),
+      String(lock.expiresAt),
+    ].join(", "),
+    `)`,
+  ].join(" ");
+}
+
+export function buildMigrationLockRefreshSql(
+  config: YdbMigrationTableConfig = {},
+  lock: { key: string; ownerId: string; heartbeatAt: number; expiresAt: number },
+): string {
+  const lockTableName = getMigrationLockTableName(config);
+
+  return [
+    `UPDATE ${escapeName(lockTableName)}`,
+    `SET ${escapeName("heartbeat_at")} = ${String(lock.heartbeatAt)}, ${escapeName("expires_at")} = ${String(lock.expiresAt)}`,
+    `WHERE ${escapeName("lock_key")} = ${escapeString(lock.key)} AND ${escapeName("owner_id")} = ${escapeString(lock.ownerId)}`,
+  ].join(" ");
+}
+
+export function buildMigrationLockReleaseSql(
+  config: YdbMigrationTableConfig = {},
+  lock: { key: string; ownerId: string },
+): string {
+  const lockTableName = getMigrationLockTableName(config);
+
+  return [
+    `DELETE FROM ${escapeName(lockTableName)}`,
+    `WHERE ${escapeName("lock_key")} = ${escapeString(lock.key)} AND ${escapeName("owner_id")} = ${escapeString(lock.ownerId)}`,
   ].join(" ");
 }

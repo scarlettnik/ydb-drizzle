@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import { aliasedTable, aliasedTableColumn, mapColumnsInAliasedSQLToAlias, mapColumnsInSQLToAlias } from "drizzle-orm/alias";
 import { CasingCache } from "drizzle-orm/casing";
 import { Column } from "drizzle-orm/column";
@@ -10,7 +11,19 @@ import type { Casing } from "drizzle-orm/utils";
 import type { YdbSession } from "../ydb-core/session.js";
 import type { YdbSelectedFieldsOrdered } from "../ydb-core/result-mapping.js";
 import type { YdbColumn } from "../ydb-core/columns/common.js";
-import { buildMigrationHistoryInsertSql, buildMigrationHistorySelectSql, buildMigrationTableBootstrapSql } from "./migration-ddl.js";
+import {
+  buildMigrationHistoryInsertSql,
+  buildMigrationHistoryMetadataColumnSql,
+  buildMigrationHistoryMetadataProbeSql,
+  buildMigrationHistorySelectSql,
+  buildMigrationLockRefreshSql,
+  buildMigrationLockReleaseSql,
+  buildMigrationLockSelectSql,
+  buildMigrationLockTableBootstrapSql,
+  buildMigrationLockUpsertSql,
+  buildMigrationTableBootstrapSql,
+  type YdbMigrationStatus,
+} from "./migration-ddl.js";
 import {
   getSelectionAliases,
   buildFromTable,
@@ -67,12 +80,277 @@ function deriveMigrationName(migration: YdbDialectMigration, index: number): str
   return migration.name ?? `migration_${String(index + 1).padStart(4, "0")}`;
 }
 
+type MigrationSession = Pick<YdbSession, "execute" | "values">;
+
+type MigrationTransactionalSession = MigrationSession & {
+  transaction<T>(
+    callback: (tx: MigrationSession) => Promise<T>,
+    config?: { accessMode?: "read only" | "read write"; idempotent?: boolean },
+  ): Promise<T>;
+};
+
+type MigrationSessionInput = MigrationSession & {
+  transaction?: MigrationTransactionalSession["transaction"];
+};
+
+interface NormalizedMigrationHistoryRow {
+  hash: string;
+  folderMillis: number;
+  name: string;
+  status: YdbMigrationStatus;
+  startedAt?: number;
+  finishedAt?: number;
+  error?: string;
+  ownerId?: string;
+  statementsTotal?: number;
+  statementsApplied?: number;
+}
+
+interface NormalizedMigrationLockConfig {
+  key: string;
+  ownerId: string;
+  leaseMs: number;
+  acquireTimeoutMs: number;
+  retryIntervalMs: number;
+}
+
+interface MigrationLockHandle {
+  ownerId: string;
+  assertHealthy(): void;
+  release(): Promise<void>;
+}
+
+const defaultMigrationLockLeaseMs = 10 * 60 * 1000;
+const defaultMigrationLockAcquireTimeoutMs = 60 * 1000;
+const defaultMigrationLockRetryIntervalMs = 1000;
+const defaultMigrationStaleRunningAfterMs = 60 * 60 * 1000;
+
+function isMigrationTransactionalSession(session: MigrationSession): session is MigrationTransactionalSession {
+  return "transaction" in session && typeof (session as MigrationTransactionalSession).transaction === "function";
+}
+
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function isMissingMigrationMetadataError(error: unknown): boolean {
+  return /column|member|unknown|not found|does not exist|no such|type annotation/i.test(getErrorMessage(error));
+}
+
+function isAlreadyExistsError(error: unknown): boolean {
+  return /already|exists|duplicate/i.test(getErrorMessage(error));
+}
+
+function toOptionalNumber(value: unknown): number | undefined {
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+
+  const numberValue = typeof value === "bigint" ? Number(value) : Number(value);
+  return Number.isFinite(numberValue) ? numberValue : undefined;
+}
+
+function normalizeMigrationHistoryRow(row: unknown[]): NormalizedMigrationHistoryRow {
+  const status = row[3] === "running" || row[3] === "failed" || row[3] === "applied"
+    ? row[3]
+    : "applied";
+
+  return {
+    hash: String(row[0]),
+    folderMillis: Number(row[1]),
+    name: String(row[2]),
+    status,
+    startedAt: toOptionalNumber(row[4]),
+    finishedAt: toOptionalNumber(row[5]),
+    error: row[6] === undefined || row[6] === null ? undefined : String(row[6]),
+    ownerId: row[7] === undefined || row[7] === null ? undefined : String(row[7]),
+    statementsTotal: toOptionalNumber(row[8]),
+    statementsApplied: toOptionalNumber(row[9]),
+  };
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function normalizePositiveNumber(value: unknown, fallback: number): number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : fallback;
+}
+
+function normalizeMigrationLockConfig(config: YdbDialectMigrationConfig): NormalizedMigrationLockConfig {
+  const lockConfig = typeof config.migrationLock === "object" ? config.migrationLock : {};
+
+  return {
+    key: lockConfig.key ?? "migrate",
+    ownerId: lockConfig.ownerId ?? `ydb-drizzle-${process.pid}-${crypto.randomUUID()}`,
+    leaseMs: normalizePositiveNumber(lockConfig.leaseMs, defaultMigrationLockLeaseMs),
+    acquireTimeoutMs: normalizePositiveNumber(lockConfig.acquireTimeoutMs, defaultMigrationLockAcquireTimeoutMs),
+    retryIntervalMs: normalizePositiveNumber(lockConfig.retryIntervalMs, defaultMigrationLockRetryIntervalMs),
+  };
+}
+
+function shouldRetryMigration(row: NormalizedMigrationHistoryRow, now: number, config: YdbDialectMigrationConfig): boolean {
+  const recovery = config.migrationRecovery ?? {};
+  const mode = recovery.mode ?? "fail";
+  if (mode !== "retry") {
+    return false;
+  }
+
+  if (row.status === "failed") {
+    return true;
+  }
+
+  const staleAfterMs = normalizePositiveNumber(recovery.staleRunningAfterMs, defaultMigrationStaleRunningAfterMs);
+  return row.status === "running" && row.startedAt !== undefined && now - row.startedAt > staleAfterMs;
+}
+
+function assertMigrationRecoverable(row: NormalizedMigrationHistoryRow, now: number, config: YdbDialectMigrationConfig): void {
+  if (row.status === "applied") {
+    return;
+  }
+
+  if (shouldRetryMigration(row, now, config)) {
+    return;
+  }
+
+  if (row.status === "failed") {
+    throw new Error(
+      `YDB migration "${row.name}" (${row.hash}) is marked as failed after ${row.statementsApplied ?? 0}/${row.statementsTotal ?? 0} statements. `
+      + "Fix the migration manually or rerun with migrationRecovery.mode = \"retry\".",
+    );
+  }
+
+  const staleAfterMs = normalizePositiveNumber(config.migrationRecovery?.staleRunningAfterMs, defaultMigrationStaleRunningAfterMs);
+  const age = row.startedAt === undefined ? "unknown" : `${now - row.startedAt}ms`;
+  throw new Error(
+    `YDB migration "${row.name}" (${row.hash}) is still marked as running (age: ${age}, owner: ${row.ownerId ?? "unknown"}). `
+    + `It is treated as active until it is older than ${staleAfterMs}ms; use migrationRecovery.mode = "retry" only after verifying the previous run is dead.`,
+  );
+}
+
 function yqlBindingName(alias: string): string {
   if (!/^[A-Za-z_][A-Za-z0-9_]*$/u.test(alias)) {
     throw new Error(`YDB CTE alias "${alias}" cannot be used as a YQL binding name`);
   }
 
   return `$${alias}`;
+}
+
+async function ensureMigrationHistoryTable(session: MigrationSession, config: YdbDialectMigrationConfig): Promise<void> {
+  await session.execute(yql.raw(buildMigrationTableBootstrapSql(config)));
+
+  try {
+    await session.values(yql.raw(buildMigrationHistoryMetadataProbeSql(config)));
+    return;
+  } catch (error) {
+    if (!isMissingMigrationMetadataError(error)) {
+      throw error;
+    }
+  }
+
+  for (const statement of buildMigrationHistoryMetadataColumnSql(config)) {
+    try {
+      await session.execute(yql.raw(statement));
+    } catch (error) {
+      if (!isAlreadyExistsError(error)) {
+        throw error;
+      }
+    }
+  }
+}
+
+async function acquireMigrationLock(
+  session: MigrationSession,
+  config: YdbDialectMigrationConfig,
+): Promise<MigrationLockHandle> {
+  if (!isMigrationTransactionalSession(session)) {
+    throw new Error("YDB migrate() migrationLock requires a transactional YDB session. Pass migrationLock: false to opt out.");
+  }
+
+  const lockConfig = normalizeMigrationLockConfig(config);
+  const deadline = Date.now() + lockConfig.acquireTimeoutMs;
+  let lastError: unknown;
+
+  while (Date.now() <= deadline) {
+    const now = Date.now();
+
+    try {
+      const acquired = await session.transaction(async (tx) => {
+        const rows = await tx.values<[string, number | string]>(yql.raw(buildMigrationLockSelectSql(config, lockConfig.key)));
+        const [ownerId, expiresAtRaw] = rows[0] ?? [];
+        const expiresAt = Number(expiresAtRaw ?? 0);
+
+        if (ownerId && ownerId !== lockConfig.ownerId && expiresAt > now) {
+          return false;
+        }
+
+        await tx.execute(yql.raw(buildMigrationLockUpsertSql(config, {
+          key: lockConfig.key,
+          ownerId: lockConfig.ownerId,
+          acquiredAt: now,
+          heartbeatAt: now,
+          expiresAt: now + lockConfig.leaseMs,
+        })));
+
+        return true;
+      }, { accessMode: "read write", idempotent: false });
+
+      if (acquired) {
+        let heartbeatError: unknown;
+        let heartbeatInFlight = false;
+        const heartbeatEveryMs = Math.max(1000, Math.floor(lockConfig.leaseMs / 3));
+        const heartbeat = setInterval(() => {
+          if (heartbeatInFlight) {
+            return;
+          }
+
+          heartbeatInFlight = true;
+          const heartbeatAt = Date.now();
+          void session.execute(yql.raw(buildMigrationLockRefreshSql(config, {
+            key: lockConfig.key,
+            ownerId: lockConfig.ownerId,
+            heartbeatAt,
+            expiresAt: heartbeatAt + lockConfig.leaseMs,
+          }))).catch((error) => {
+            heartbeatError = error;
+          }).finally(() => {
+            heartbeatInFlight = false;
+          });
+        }, heartbeatEveryMs);
+        heartbeat.unref?.();
+
+        return {
+          ownerId: lockConfig.ownerId,
+          assertHealthy() {
+            if (heartbeatError) {
+              throw new Error(`YDB migrate() lock heartbeat failed: ${getErrorMessage(heartbeatError)}`, { cause: heartbeatError });
+            }
+          },
+          async release() {
+            clearInterval(heartbeat);
+            await session.execute(yql.raw(buildMigrationLockReleaseSql(config, {
+              key: lockConfig.key,
+              ownerId: lockConfig.ownerId,
+            })));
+          },
+        };
+      }
+    } catch (error) {
+      lastError = error;
+    }
+
+    const remainingMs = deadline - Date.now();
+    if (remainingMs <= 0) {
+      break;
+    }
+
+    await sleep(Math.min(lockConfig.retryIntervalMs, remainingMs));
+  }
+
+  throw new Error(
+    `YDB migrate() could not acquire migration lock "${lockConfig.key}" within ${lockConfig.acquireTimeoutMs}ms.`,
+    { cause: lastError },
+  );
 }
 
 export class YdbDialect {
@@ -497,42 +775,153 @@ export class YdbDialect {
 
   async migrate(
     migrations: readonly YdbDialectMigration[],
-    session: Pick<YdbSession, "execute" | "values">,
+    session: MigrationSessionInput,
     config: string | YdbDialectMigrationConfig = {},
   ): Promise<void> {
     const migrationConfig = typeof config === "string"
       ? { migrationsTable: config }
       : config;
+    const lockEnabled = migrationConfig.migrationLock !== false;
+    let lock: MigrationLockHandle | undefined;
+    let primaryError: unknown;
+    let releaseError: unknown;
 
-    await session.execute(yql.raw(buildMigrationTableBootstrapSql(migrationConfig)));
-
-    const appliedRows = await session.values<[string, number | string, string]>(
-      yql.raw(buildMigrationHistorySelectSql(migrationConfig)),
-    );
-    const appliedHashes = new Set(appliedRows.map(([hash]) => hash));
-    const orderedMigrations = [...migrations].sort((left, right) => left.folderMillis - right.folderMillis);
-
-    for (const [index, migration] of orderedMigrations.entries()) {
-      if (appliedHashes.has(migration.hash)) {
-        continue;
+    try {
+      if (lockEnabled) {
+        await session.execute(yql.raw(buildMigrationLockTableBootstrapSql(migrationConfig)));
+        lock = await acquireMigrationLock(session, migrationConfig);
       }
 
-      for (const statement of migration.sql) {
-        const trimmed = statement.trim();
-        if (trimmed === "") {
+      await ensureMigrationHistoryTable(session, migrationConfig);
+
+      const appliedRows = await session.values<[
+        string,
+        number | string,
+        string,
+        YdbMigrationStatus | null,
+        number | string | null,
+        number | string | null,
+        string | null,
+        string | null,
+        number | string | null,
+        number | string | null,
+      ]>(yql.raw(buildMigrationHistorySelectSql(migrationConfig)));
+      const historyRows = appliedRows.map((row) => normalizeMigrationHistoryRow(row));
+      const historyByHash = new Map(historyRows.map((row) => [row.hash, row]));
+      const appliedHashes = new Set(historyRows.filter((row) => row.status === "applied").map((row) => row.hash));
+      const orderedMigrations = [...migrations].sort((left, right) => left.folderMillis - right.folderMillis);
+
+      for (const [index, migration] of orderedMigrations.entries()) {
+        if (appliedHashes.has(migration.hash)) {
           continue;
         }
 
-        await session.execute(yql.raw(trimmed));
+        const now = Date.now();
+        const existingRow = historyByHash.get(migration.hash);
+        if (existingRow) {
+          assertMigrationRecoverable(existingRow, now, migrationConfig);
+        }
+
+        lock?.assertHealthy();
+
+        const migrationName = deriveMigrationName(migration, index);
+        const statements = migration.sql.map((statement) => statement.trim()).filter((statement) => statement !== "");
+        const startedAt = Date.now();
+        let statementsApplied = 0;
+
+        await session.execute(yql.raw(buildMigrationHistoryInsertSql({
+          hash: migration.hash,
+          folderMillis: migration.folderMillis,
+          name: migrationName,
+          status: "running",
+          startedAt,
+          ownerId: lock?.ownerId,
+          statementsTotal: statements.length,
+          statementsApplied,
+        }, migrationConfig)));
+
+        try {
+          for (const statement of statements) {
+            lock?.assertHealthy();
+            await session.execute(yql.raw(statement));
+            statementsApplied += 1;
+            await session.execute(yql.raw(buildMigrationHistoryInsertSql({
+              hash: migration.hash,
+              folderMillis: migration.folderMillis,
+              name: migrationName,
+              status: "running",
+              startedAt,
+              ownerId: lock?.ownerId,
+              statementsTotal: statements.length,
+              statementsApplied,
+            }, migrationConfig)));
+          }
+
+          const finishedAt = Date.now();
+          await session.execute(yql.raw(buildMigrationHistoryInsertSql({
+            hash: migration.hash,
+            folderMillis: migration.folderMillis,
+            name: migrationName,
+            status: "applied",
+            startedAt,
+            finishedAt,
+            ownerId: lock?.ownerId,
+            statementsTotal: statements.length,
+            statementsApplied,
+          }, migrationConfig)));
+
+          appliedHashes.add(migration.hash);
+          historyByHash.set(migration.hash, {
+            hash: migration.hash,
+            folderMillis: migration.folderMillis,
+            name: migrationName,
+            status: "applied",
+            startedAt,
+            finishedAt,
+            ownerId: lock?.ownerId,
+            statementsTotal: statements.length,
+            statementsApplied,
+          });
+        } catch (error) {
+          const finishedAt = Date.now();
+          const message = getErrorMessage(error);
+          await session.execute(yql.raw(buildMigrationHistoryInsertSql({
+            hash: migration.hash,
+            folderMillis: migration.folderMillis,
+            name: migrationName,
+            status: "failed",
+            startedAt,
+            finishedAt,
+            error: message.slice(0, 4096),
+            ownerId: lock?.ownerId,
+            statementsTotal: statements.length,
+            statementsApplied,
+          }, migrationConfig)));
+
+          throw new Error(
+            `YDB migration "${migrationName}" failed after ${statementsApplied}/${statements.length} statements: ${message}`,
+            { cause: error },
+          );
+        }
       }
+    } catch (error) {
+      primaryError = error;
+    } finally {
+      if (lock) {
+        try {
+          await lock.release();
+        } catch (error) {
+          releaseError = error;
+        }
+      }
+    }
 
-      await session.execute(yql.raw(buildMigrationHistoryInsertSql({
-        hash: migration.hash,
-        folderMillis: migration.folderMillis,
-        name: deriveMigrationName(migration, index),
-      }, migrationConfig)));
+    if (primaryError) {
+      throw primaryError;
+    }
 
-      appliedHashes.add(migration.hash);
+    if (releaseError) {
+      throw releaseError;
     }
   }
 

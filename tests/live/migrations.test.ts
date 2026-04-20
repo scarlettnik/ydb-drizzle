@@ -4,7 +4,16 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { sql as yql } from "drizzle-orm";
-import { buildCreateTableSql, index, integer, migrate, text, type YdbInlineMigration, ydbTable } from "../../src/index.js";
+import {
+  buildCreateTableSql,
+  buildMigrationLockTableBootstrapSql,
+  index,
+  integer,
+  migrate,
+  text,
+  type YdbInlineMigration,
+  ydbTable,
+} from "../../src/index.js";
 import { createLiveContext } from "./helpers/context.js";
 
 const live = createLiveContext();
@@ -206,6 +215,103 @@ test("folder migrate accepts drizzle journal/sql format on live YDB", async (t) 
     rmSync(tempDir, { recursive: true, force: true });
     await live.db.execute(yql.raw(`DROP TABLE IF EXISTS \`${tableName}\``));
     await live.db.execute(yql.raw(`DROP TABLE IF EXISTS \`${migrationTableName}\``));
+  }
+});
+
+test("migration lock and failed-state recovery guard work on live YDB", async (t) => {
+  if (!live.requireLiveYdb(t)) return;
+  live.describeDbChange(
+    t,
+    "create a live migration lock row and verify a concurrent migration times out, then record a failed migration and verify reruns are blocked until explicit recovery",
+  );
+
+  const suffix = live.baseIntId + 651;
+  const lockHistoryTable = `lock_history_${suffix}`;
+  const lockTable = `${lockHistoryTable}_lock`;
+  const failedTable = `failed_migration_${suffix}`;
+  const failedHistoryTable = `failed_history_${suffix}`;
+  const failedLockTable = `${failedHistoryTable}_lock`;
+  const missingTable = `missing_recovery_source_${suffix}`;
+  const failedHash = `failed_hash_${suffix}`;
+
+  await live.db.execute(yql.raw(`DROP TABLE IF EXISTS \`${failedTable}\``));
+  await live.db.execute(yql.raw(`DROP TABLE IF EXISTS \`${lockHistoryTable}\``));
+  await live.db.execute(yql.raw(`DROP TABLE IF EXISTS \`${lockTable}\``));
+  await live.db.execute(yql.raw(`DROP TABLE IF EXISTS \`${failedHistoryTable}\``));
+  await live.db.execute(yql.raw(`DROP TABLE IF EXISTS \`${failedLockTable}\``));
+
+  try {
+    await live.db.execute(yql.raw(buildMigrationLockTableBootstrapSql({ migrationsTable: lockHistoryTable })));
+    await live.db.execute(yql.raw([
+      `UPSERT INTO \`${lockTable}\` (\`lock_key\`, \`owner_id\`, \`acquired_at\`, \`heartbeat_at\`, \`expires_at\`)`,
+      `VALUES ('migrate', 'other-runner', 1, 1, ${Date.now() + 60_000})`,
+    ].join(" ")));
+
+    await assert.rejects(
+      () => migrate(live.db, {
+        migrationsTable: lockHistoryTable,
+        migrationLock: {
+          ownerId: "blocked-live-runner",
+          acquireTimeoutMs: 50,
+          retryIntervalMs: 10,
+        },
+        migrations: [
+          {
+            name: "0001_blocked",
+            folderMillis: 1,
+            sql: [`CREATE TABLE \`${failedTable}\` (\`id\` Int32 NOT NULL, PRIMARY KEY (\`id\`))`],
+          },
+        ],
+      }),
+      /could not acquire migration lock/u,
+    );
+
+    await live.db.execute(yql.raw(`DELETE FROM \`${lockTable}\` WHERE \`lock_key\` = 'migrate'`));
+
+    const failingMigration: YdbInlineMigration = {
+      name: "0001_failed",
+      folderMillis: 1,
+      hash: failedHash,
+      sql: [
+        `CREATE TABLE IF NOT EXISTS \`${failedTable}\` (\`id\` Int32 NOT NULL, PRIMARY KEY (\`id\`))`,
+        `SELECT * FROM \`${missingTable}\``,
+      ],
+    };
+
+    await assert.rejects(
+      () => migrate(live.db, {
+        migrationsTable: failedHistoryTable,
+        migrationLock: { ownerId: "failed-live-runner" },
+        migrations: [failingMigration],
+      }),
+      /failed after 1\/2 statements/u,
+    );
+
+    const failedRows = await live.db.values<[string, string | null, number | null, number | null]>(
+      yql.raw(
+        `SELECT \`status\`, \`error\`, \`statements_total\`, \`statements_applied\` FROM \`${failedHistoryTable}\` WHERE \`hash\` = '${failedHash}'`,
+      ),
+    );
+    assert.equal(failedRows.length, 1);
+    assert.equal(failedRows[0]![0], "failed");
+    assert.equal(failedRows[0]![2], 2);
+    assert.equal(failedRows[0]![3], 1);
+    assert.notEqual(failedRows[0]![1], null);
+
+    await assert.rejects(
+      () => migrate(live.db, {
+        migrationsTable: failedHistoryTable,
+        migrationLock: { ownerId: "blocked-after-failed-live-runner" },
+        migrations: [failingMigration],
+      }),
+      /marked as failed/u,
+    );
+  } finally {
+    await live.db.execute(yql.raw(`DROP TABLE IF EXISTS \`${failedTable}\``));
+    await live.db.execute(yql.raw(`DROP TABLE IF EXISTS \`${lockHistoryTable}\``));
+    await live.db.execute(yql.raw(`DROP TABLE IF EXISTS \`${lockTable}\``));
+    await live.db.execute(yql.raw(`DROP TABLE IF EXISTS \`${failedHistoryTable}\``));
+    await live.db.execute(yql.raw(`DROP TABLE IF EXISTS \`${failedLockTable}\``));
   }
 });
 

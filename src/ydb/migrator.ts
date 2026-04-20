@@ -12,7 +12,7 @@ export interface YdbMigratorConfig extends YdbMigrationTableConfig {
   migrations: readonly YdbInlineMigration[];
 }
 
-export type YdbMigrateConfig = DrizzleMigrationConfig | YdbMigratorConfig;
+export type YdbMigrateConfig = (DrizzleMigrationConfig & YdbMigrationTableConfig) | YdbMigratorConfig;
 
 function isDrizzleMigrationConfig(config: YdbMigrateConfig): config is DrizzleMigrationConfig {
   return "migrationsFolder" in config;
@@ -45,10 +45,16 @@ export async function migrate<TSchema extends Record<string, unknown>>(
     ? {
       migrationsTable: config.migrationsTable,
       migrationsSchema: config.migrationsSchema,
+      migrationsLockTable: config.migrationsLockTable,
+      migrationLock: config.migrationLock,
+      migrationRecovery: config.migrationRecovery,
     }
     : {
       migrationsTable: config.migrationsTable,
       migrationsSchema: config.migrationsSchema,
+      migrationsLockTable: config.migrationsLockTable,
+      migrationLock: config.migrationLock,
+      migrationRecovery: config.migrationRecovery,
     };
 
   const dialect = new YdbDialect();

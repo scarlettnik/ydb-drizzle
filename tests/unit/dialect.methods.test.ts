@@ -285,16 +285,22 @@ test("buildRelationalQueryWithoutPK builds flat schema-aware queries", () => {
 
 test("dialect.migrate bootstraps bookkeeping, skips applied hashes and records migration names", async () => {
   const calls: string[] = [];
-  const rows: Array<[string, number, string]> = [["hash_1", 1, "0001_existing"]];
+  const rows: Array<unknown[]> = [["hash_1", 1, "0001_existing", "applied", null, null, null, null, null, null]];
 
   const session = {
     async execute(query: any) {
       const built = dialect.sqlToQuery(query);
       calls.push(built.sql);
 
-      const upsertMatch = built.sql.match(/UPSERT INTO .* VALUES \('([^']+)', ([0-9]+), '([^']+)'\)$/u);
+      const upsertMatch = built.sql.match(/UPSERT INTO .* VALUES \( '([^']+)', ([0-9]+), '([^']+)', '([^']+)',/u);
       if (upsertMatch) {
-        rows.unshift([upsertMatch[1]!, Number(upsertMatch[2]), upsertMatch[3]!]);
+        const nextRow = [upsertMatch[1]!, Number(upsertMatch[2]), upsertMatch[3]!, upsertMatch[4]!, null, null, null, null, null, null];
+        const existingIndex = rows.findIndex((row) => row[0] === nextRow[0]);
+        if (existingIndex >= 0) {
+          rows[existingIndex] = nextRow;
+        } else {
+          rows.unshift(nextRow);
+        }
       }
 
       return { rows: [] };
@@ -302,6 +308,10 @@ test("dialect.migrate bootstraps bookkeeping, skips applied hashes and records m
     async values(query: any) {
       const built = dialect.sqlToQuery(query);
       calls.push(built.sql);
+      if (built.sql.startsWith("SELECT `status` FROM `")) {
+        return [];
+      }
+
       return rows.map((row) => [...row]);
     },
   };
@@ -321,12 +331,12 @@ test("dialect.migrate bootstraps bookkeeping, skips applied hashes and records m
       bps: false,
       sql: ["select 2", ""],
     },
-  ], session as any, { migrationsTable: "__dialect_migrations" });
+  ], session as any, { migrationsTable: "__dialect_migrations", migrationLock: false });
 
   assert.ok(calls[0]?.startsWith("CREATE TABLE IF NOT EXISTS `__dialect_migrations`"));
-  assert.ok(calls.some((call) => call === "SELECT `hash`, `created_at`, `name` FROM `__dialect_migrations` ORDER BY `created_at` DESC"));
+  assert.ok(calls.some((call) => call.startsWith("SELECT `hash`, `created_at`, `name`, `status`, `started_at`, `finished_at`, `error`, `owner_id`, `statements_total`, `statements_applied` FROM `__dialect_migrations`")));
   assert.ok(!calls.includes("select 1"));
   assert.ok(calls.includes("select 2"));
-  assert.ok(calls.some((call) => call.endsWith("VALUES ('hash_2', 2, '0002_new')")));
-  assert.deepEqual(rows[0], ["hash_2", 2, "0002_new"]);
+  assert.ok(calls.some((call) => call.includes("VALUES ( 'hash_2', 2, '0002_new', 'applied'")));
+  assert.deepEqual(rows[0]?.slice(0, 4), ["hash_2", 2, "0002_new", "applied"]);
 });
