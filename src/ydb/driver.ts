@@ -113,8 +113,13 @@ export class YdbDriver implements YdbTransactionalExecutor {
   readonly client: QueryClient;
   #ownsDriver: boolean;
 
-  constructor(connectionString: string);
-  constructor(options: YdbDriverOptions);
+    constructor(connectionString: string);
+    constructor(options: YdbDriverOptions);
+  /**
+   * Wraps an existing YDB driver instance.
+   *
+   * @param driver Existing YDB driver instance. The adapter does not close borrowed drivers.
+   */
   constructor(driver: Driver);
   constructor(arg: string | YdbDriverOptions | Driver) {
     if (arg instanceof Driver) {
@@ -131,15 +136,15 @@ export class YdbDriver implements YdbTransactionalExecutor {
     this.client = query(this.driver);
   }
 
-  async ready(signal?: AbortSignal): Promise<void> {
+    async ready(signal?: AbortSignal): Promise<void> {
     await this.driver.ready(signal);
   }
 
-  execute(sql: string, params: unknown[], method: YdbExecutionMethod, options?: YdbExecuteOptions): Promise<YdbQueryResult> {
+    execute(sql: string, params: unknown[], method: YdbExecutionMethod, options?: YdbExecuteOptions): Promise<YdbQueryResult> {
     return execQuery(this.client, sql, params, method, options);
   }
 
-  async transaction<T>(callback: (tx: YdbExecutor) => Promise<T>, config?: YdbTransactionConfig): Promise<T> {
+    async transaction<T>(callback: (tx: YdbExecutor) => Promise<T>, config?: YdbTransactionConfig): Promise<T> {
     const options = mapTransactionConfig(config);
 
     if (options) {
@@ -149,13 +154,18 @@ export class YdbDriver implements YdbTransactionalExecutor {
     return this.client.begin(async (tx) => callback(new YdbTxExecutor(tx)));
   }
 
+  /**
+   * Closes the owned YDB driver instance.
+   *
+   * Borrowed driver instances passed to the constructor are not closed.
+   */
   close(): void {
     if (this.#ownsDriver) {
       this.driver.close();
     }
   }
 
-  static fromCallback(callback: YdbRemoteCallback): YdbExecutor {
+    static fromCallback(callback: YdbRemoteCallback): YdbExecutor {
     return {
       execute(sql, params, method, options) {
         return callback(sql, params, method, options);

@@ -11,11 +11,6 @@ import type {
 import { YdbSession } from "../ydb-core/session.js";
 import { YdbDatabase } from "../ydb-core/db.js";
 
-/**
- * Shared configuration for `createDrizzle()` / `drizzle()`.
- *
- * @typeParam TSchemaDefinition - User schema object passed via `schema`, for example `{ users, posts }`.
- */
 export interface YdbDrizzleConfig<TSchemaDefinition extends YdbSchemaDefinition = YdbSchemaWithoutTables> {
   casing?: Casing;
   logger?: boolean | Logger;
@@ -23,22 +18,12 @@ export interface YdbDrizzleConfig<TSchemaDefinition extends YdbSchemaDefinition 
   schema?: TSchemaDefinition;
 }
 
-/**
- * Connection-oriented overload input for `createDrizzle()`.
- *
- * @typeParam TSchemaDefinition - User schema object passed via `schema`, for example `{ users, posts }`.
- */
 export interface YdbDrizzleOptions<TSchemaDefinition extends YdbSchemaDefinition = YdbSchemaWithoutTables>
   extends YdbDrizzleConfig<TSchemaDefinition> {
   connectionString?: string;
   client?: YdbExecutor | YdbTransactionalExecutor;
 }
 
-/**
- * Concrete database instance returned by `createDrizzle()` / `drizzle()`.
- *
- * @typeParam TSchemaDefinition - User schema object passed via `schema`, for example `{ users, posts }`.
- */
 export type YdbDrizzleDatabase<TSchemaDefinition extends YdbSchemaDefinition = YdbSchemaWithoutTables> =
   YdbDatabase<TSchemaDefinition, YdbSchemaRelations<TSchemaDefinition>> & { $client: YdbExecutor };
 
@@ -94,11 +79,6 @@ function isYdbOptions<TSchemaDefinition extends YdbSchemaDefinition>(
   return "connectionString" in value || "client" in value || "schema" in value;
 }
 
-/**
- * Creates a YDB-backed Drizzle database instance from an executor, callback, or connection options.
- *
- * @typeParam TSchemaDefinition - User schema object passed via `schema`, for example `{ users, posts }`.
- */
 export function createDrizzle<TSchemaDefinition extends YdbSchemaDefinition>(
   input: YdbExecutor | YdbTransactionalExecutor | YdbRemoteCallback,
   config: YdbDrizzleConfig<TSchemaDefinition> & { schema: TSchemaDefinition },

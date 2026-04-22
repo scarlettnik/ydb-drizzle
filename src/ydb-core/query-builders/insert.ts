@@ -126,14 +126,14 @@ abstract class YdbInsertLikeBuilder<TResult = unknown> extends QueryPromise<TRes
     super();
   }
 
-  values(values: InsertValues | InsertValues[]): this {
+    values(values: InsertValues | InsertValues[]): this {
     this.valuesData = values;
     this.selectQuery = undefined;
     this.selectColumnEntries = undefined;
     return this;
   }
 
-  select(
+    select(
     query:
       | InsertSelectQuery
       | ((qb: YdbQueryBuilder) => InsertSelectQuery),
@@ -205,16 +205,16 @@ abstract class YdbInsertLikeBuilder<TResult = unknown> extends QueryPromise<TRes
     });
   }
 
-  getSQL(): SQLType {
+    getSQL(): SQLType {
     return this.buildStandardQuery();
   }
 
-  toSQL() {
+    toSQL() {
     const { typings: _typings, ...query } = this.dialect.sqlToQuery(this.getSQL());
     return query;
   }
 
-  prepare(name?: string) {
+    prepare(name?: string) {
     return this.session.prepareQuery<YdbPreparedQueryConfig & { execute: TResult }>(
       this.getSQL(),
       this.returningFields,
@@ -223,7 +223,7 @@ abstract class YdbInsertLikeBuilder<TResult = unknown> extends QueryPromise<TRes
     );
   }
 
-  override execute(): Promise<TResult> {
+    override execute(): Promise<TResult> {
     return this.prepare().execute() as Promise<TResult>;
   }
 }
@@ -231,7 +231,7 @@ abstract class YdbInsertLikeBuilder<TResult = unknown> extends QueryPromise<TRes
 export class YdbInsertBuilder<TResult = unknown> extends YdbInsertLikeBuilder<TResult> {
   private onDuplicateSet?: InsertValues;
 
-  constructor(
+    constructor(
     table: YdbTable,
     session: YdbSession,
     dialect = new YdbDialect(),
@@ -240,11 +240,11 @@ export class YdbInsertBuilder<TResult = unknown> extends YdbInsertLikeBuilder<TR
     super(table, session, dialect, withList, "insert", "default-aware");
   }
 
-  returning(fields: Record<string, unknown> = getAllReturningFields(this.table)): this {
+    returning(fields: Record<string, unknown> = getAllReturningFields(this.table)): this {
     return this.setReturning(fields);
   }
 
-  onDuplicateKeyUpdate(config: OnDuplicateKeyUpdateConfig): this {
+    onDuplicateKeyUpdate(config: OnDuplicateKeyUpdateConfig): this {
     validateTableColumnKeys(this.table, config.set, "update");
     this.onDuplicateSet = { ...config.set };
     return this;
@@ -322,7 +322,7 @@ export class YdbInsertBuilder<TResult = unknown> extends YdbInsertLikeBuilder<TR
     } as ${yql.identifier(incomingAlias)} left join ${this.table} on ${joinSql}${returningSql}`;
   }
 
-  override getSQL(): SQLType {
+    override getSQL(): SQLType {
     if (this.onDuplicateSet) {
       if (this.selectQuery) {
         return this.buildOnDuplicateKeyUpdateQuery([]);
@@ -337,7 +337,7 @@ export class YdbInsertBuilder<TResult = unknown> extends YdbInsertLikeBuilder<TR
 }
 
 export class YdbUpsertBuilder<TResult = unknown> extends YdbInsertLikeBuilder<TResult> {
-  constructor(
+    constructor(
     table: YdbTable,
     session: YdbSession,
     dialect = new YdbDialect(),
@@ -346,13 +346,13 @@ export class YdbUpsertBuilder<TResult = unknown> extends YdbInsertLikeBuilder<TR
     super(table, session, dialect, withList, "upsert", "provided");
   }
 
-  returning(fields: Record<string, unknown> = getAllReturningFields(this.table)): this {
+    returning(fields: Record<string, unknown> = getAllReturningFields(this.table)): this {
     return this.setReturning(fields);
   }
 }
 
 export class YdbReplaceBuilder<TResult = unknown> extends YdbInsertLikeBuilder<TResult> {
-  constructor(
+    constructor(
     table: YdbTable,
     session: YdbSession,
     dialect = new YdbDialect(),
@@ -361,7 +361,7 @@ export class YdbReplaceBuilder<TResult = unknown> extends YdbInsertLikeBuilder<T
     super(table, session, dialect, withList, "replace", "all");
   }
 
-  returning(): never {
+    returning(): never {
     throw new Error("YDB replace().returning() is not documented or supported");
   }
 }

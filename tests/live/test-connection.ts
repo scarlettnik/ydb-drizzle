@@ -15,6 +15,7 @@ async function main() {
   await driver.ready();
 
   const db = drizzle(driver);
+  let runError: unknown;
 
   try {
     console.log("[test]", connectionString);
@@ -42,8 +43,22 @@ async function main() {
     await db.delete(demoUsers).where(yql`${demoUsers.id} = ${2}`);
     const all = await db.select().from(demoUsers);
     console.log("[all]", all);
+  } catch (error) {
+    runError = error;
+    throw error;
   } finally {
-    driver.close();
+    try {
+      await db.delete(demoUsers).where(yql`${demoUsers.id} = ${1}`);
+      await db.delete(demoUsers).where(yql`${demoUsers.id} = ${2}`);
+    } catch (cleanupError) {
+      if (runError === undefined) {
+        throw cleanupError;
+      }
+
+      console.error("[cleanup-fail]", cleanupError);
+    } finally {
+      driver.close();
+    }
   }
 }
 

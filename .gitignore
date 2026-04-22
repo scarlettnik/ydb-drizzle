@@ -14,6 +14,7 @@ node_modules
 !.env.example
 !.env.test.example
 dist
+site
 dist-ssr
 *.local
 

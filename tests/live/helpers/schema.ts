@@ -38,6 +38,7 @@ export const postsTableName = getSafeTableName("YDB_POSTS_TEST_TABLE", "adapter_
 export const typesTableName = getSafeTableName("YDB_TYPES_TEST_TABLE", "adapter_test_column_types");
 export const keepData = process.env["YDB_TEST_KEEP_DATA"] === "1";
 export const verbose = process.env["YDB_TEST_VERBOSE"] === "1";
+export const requireLiveYdb = process.env["YDB_TEST_REQUIRE_LIVE"] === "1";
 
 export const users = ydbTable(usersTableName, {
   id: integer("id").notNull().primaryKey(),

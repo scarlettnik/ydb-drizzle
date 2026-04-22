@@ -284,7 +284,7 @@ export class YdbRelationalQueryBuilder<
 > {
   static readonly [entityKind] = "YdbRelationalQueryBuilder";
 
-  constructor(
+    constructor(
     private readonly fullSchema: Record<string, unknown>,
     private readonly schema: TSchema,
     private readonly tableNamesMap: Record<string, string>,
@@ -294,7 +294,7 @@ export class YdbRelationalQueryBuilder<
     private readonly session: YdbSession,
   ) {}
 
-  findMany<TConfig extends YdbRelationalManyConfig<TSchema, TFields>>(
+    findMany<TConfig extends YdbRelationalManyConfig<TSchema, TFields>>(
     config?: KnownKeysOnly<TConfig, YdbRelationalManyConfig<TSchema, TFields>>,
   ): YdbRelationalQuery<BuildQueryResult<TSchema, TFields, TConfig>[]> {
     return new YdbRelationalQuery(
@@ -310,7 +310,7 @@ export class YdbRelationalQueryBuilder<
     );
   }
 
-  findFirst<TConfig extends YdbRelationalFirstConfig<TSchema, TFields>>(
+    findFirst<TConfig extends YdbRelationalFirstConfig<TSchema, TFields>>(
     config?: KnownKeysOnly<TConfig, YdbRelationalFirstConfig<TSchema, TFields>>,
   ): YdbRelationalQuery<BuildQueryResult<TSchema, TFields, TConfig> | undefined> {
     return new YdbRelationalQuery(
@@ -335,7 +335,7 @@ export class YdbRelationalQuery<TResult> extends QueryPromise<TResult> {
     readonly result: TResult;
   };
 
-  constructor(
+    constructor(
     private readonly fullSchema: Record<string, unknown>,
     private readonly schema: TablesRelationalConfig,
     private readonly tableNamesMap: Record<string, string>,
@@ -605,7 +605,7 @@ export class YdbRelationalQuery<TResult> extends QueryPromise<TResult> {
     }
   }
 
-  getSQL(): SQL {
+    getSQL(): SQL {
     return this.buildFlatQueryPlan({
       table: this.table,
       tableConfig: this.tableConfig,
@@ -629,7 +629,7 @@ export class YdbRelationalQuery<TResult> extends QueryPromise<TResult> {
     return result.values as TResult;
   }
 
-  prepare(name?: string) {
+    prepare(name?: string) {
     const flatPrepared = this.session.prepareQuery(this.getSQL(), undefined, name, false);
     const self = this;
 
@@ -658,13 +658,13 @@ export class YdbRelationalQuery<TResult> extends QueryPromise<TResult> {
     };
   }
 
-  toSQL() {
+    toSQL() {
     const prepared = this.prepare();
     const { typings: _typings, ...query } = prepared.getQuery();
     return query;
   }
 
-  override execute(): Promise<TResult> {
+    override execute(): Promise<TResult> {
     return this.run();
   }
 }

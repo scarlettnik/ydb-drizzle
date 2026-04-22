@@ -261,13 +261,7 @@ export class YdbSession {
     return Number(value ?? 0);
   }
 
-  /**
-   * Runs a callback inside a YDB transaction.
-   *
-   * @typeParam TSchemaDefinition - Raw schema object passed to `drizzle({ schema })`.
-   * @typeParam TSchemaRelations - Relational metadata extracted from `TSchemaDefinition`.
-   */
-  async transaction<T>(
+    async transaction<T>(
     transaction: (tx: YdbTransaction) => Promise<T>,
     config?: YdbTransactionConfig,
   ): Promise<T>;

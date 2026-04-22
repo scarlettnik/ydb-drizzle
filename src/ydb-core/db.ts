@@ -30,12 +30,6 @@ import {
   YdbUpdateBuilder,
 } from "./query-builders/index.js";
 
-/**
- * Database shape available inside `db.transaction(...)`.
- *
- * @typeParam TSchemaDefinition - Raw schema object passed to `drizzle({ schema })`.
- * @typeParam TSchemaRelations - Relational metadata extracted from `TSchemaDefinition`.
- */
 export type YdbTransactionScope<
   TSchemaDefinition extends YdbSchemaDefinition = YdbSchemaWithoutTables,
   TSchemaRelations extends TablesRelationalConfig = YdbSchemaRelations<TSchemaDefinition>,
@@ -43,12 +37,6 @@ export type YdbTransactionScope<
   rollback(): never;
 };
 
-/**
- * Main Drizzle database wrapper for YDB.
- *
- * @typeParam TSchemaDefinition - Raw schema object passed to `drizzle({ schema })`.
- * @typeParam TSchemaRelations - Relational metadata extracted from `TSchemaDefinition`.
- */
 export class YdbDatabase<
   TSchemaDefinition extends YdbSchemaDefinition = YdbSchemaWithoutTables,
   TSchemaRelations extends TablesRelationalConfig = YdbSchemaRelations<TSchemaDefinition>,
@@ -56,10 +44,8 @@ export class YdbDatabase<
   static readonly [entityKind] = "YdbDatabase";
 
   readonly _: {
-    /** Relational metadata generated from `fullSchema` and used by `db.query.*`. */
-    readonly schema: TSchemaRelations | undefined;
-    /** Exact schema object passed to `drizzle({ schema })`. */
-    readonly fullSchema: TSchemaDefinition;
+        readonly schema: TSchemaRelations | undefined;
+        readonly fullSchema: TSchemaDefinition;
     readonly tableNamesMap: Record<string, string>;
     readonly session: YdbSession;
   };

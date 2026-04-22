@@ -71,7 +71,7 @@ export class YdbTableOptionsBuilder {
 
   constructor(private readonly options: Readonly<Record<string, YdbTableOptionValue>>) {}
 
-  build(table: YdbTable): YdbTableOptions {
+    build(table: YdbTable): YdbTableOptions {
     return new YdbTableOptions({
       table,
       options: { ...this.options },
@@ -82,7 +82,7 @@ export class YdbTableOptionsBuilder {
 export class YdbTableOptions {
   static readonly [entityKind] = "YdbTableOptions";
 
-  constructor(readonly config: YdbTableOptionsConfig) {}
+    constructor(readonly config: YdbTableOptionsConfig) {}
 }
 
 export class YdbPartitioningBuilder {
@@ -90,7 +90,7 @@ export class YdbPartitioningBuilder {
 
   constructor(private readonly columns: [YdbColumn, ...YdbColumn[]]) {}
 
-  build(table: YdbTable): YdbPartitioning {
+    build(table: YdbTable): YdbPartitioning {
     assertColumnsBelongToTable(table, this.columns, "Partitioning");
     return new YdbPartitioning({
       table,
@@ -103,7 +103,7 @@ export class YdbPartitioningBuilder {
 export class YdbPartitioning {
   static readonly [entityKind] = "YdbPartitioning";
 
-  constructor(readonly config: YdbPartitioningConfig) {}
+    constructor(readonly config: YdbPartitioningConfig) {}
 }
 
 export class YdbTtlBuilder {
@@ -115,7 +115,7 @@ export class YdbTtlBuilder {
     private readonly unit?: YdbTtlUnit,
   ) {}
 
-  build(table: YdbTable): YdbTtl {
+    build(table: YdbTable): YdbTtl {
     assertColumnsBelongToTable(table, [this.column], "TTL");
     if (this.actions.length === 0) {
       throw new Error("YDB TTL requires at least one action");
@@ -133,7 +133,7 @@ export class YdbTtlBuilder {
 export class YdbTtl {
   static readonly [entityKind] = "YdbTtl";
 
-  constructor(readonly config: YdbTtlConfig) {}
+    constructor(readonly config: YdbTtlConfig) {}
 }
 
 export class YdbColumnFamilyBuilder {
@@ -146,12 +146,12 @@ export class YdbColumnFamilyBuilder {
     private readonly options: YdbColumnFamilyOptions = {},
   ) {}
 
-  columns(...columns: YdbColumn[]): this {
+    columns(...columns: YdbColumn[]): this {
     this.familyColumns = [...columns];
     return this;
   }
 
-  build(table: YdbTable): YdbColumnFamily {
+    build(table: YdbTable): YdbColumnFamily {
     assertColumnsBelongToTable(table, this.familyColumns, "Column family");
     return new YdbColumnFamily({
       table,
@@ -165,7 +165,7 @@ export class YdbColumnFamilyBuilder {
 export class YdbColumnFamily {
   static readonly [entityKind] = "YdbColumnFamily";
 
-  constructor(readonly config: YdbColumnFamilyConfig) {}
+    constructor(readonly config: YdbColumnFamilyConfig) {}
 }
 
 export function tableOptions(options: Readonly<Record<string, YdbTableOptionValue>>): YdbTableOptionsBuilder {

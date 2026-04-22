@@ -117,11 +117,15 @@
 - [x] prepare(name?)
 - [x] orderBy(...)
 - [x] groupBy(...)
+- [x] groupCompactBy(...) for YDB `GROUP COMPACT BY`
 - [x] having(...)
+- [x] window(name, definition) for named YDB `WINDOW` clauses
 - [x] limit(n)
 - [x] offset(n)
+- [x] intoResult(name) for YDB `INTO RESULT`
 - [x] distinct()
 - [x] distinctOn(...) //adapter-side emulation via row_number() window query
+- [x] uniqueDistinct(uniqueHint(...), distinctHint(...)) for YDB `UNIQUE DISTINCT` SQL hints
 - [x] innerJoin(...)
 - [x] leftJoin(...)
 - [x] rightJoin(...)
@@ -129,6 +133,17 @@
 - [x] crossJoin(...)
 - [x] YDB-specific joins: leftSemiJoin, rightSemiJoin, leftOnlyJoin, rightOnlyJoin, exclusionJoin
 - [x] set operators: union, unionAll, intersect, except //INTERSECT/EXCEPT are emulated in SQL
+- [x] fromAsTable(binding, alias?) for YDB `FROM AS_TABLE(...)`
+- [x] fromValues(rows, options?) for YDB `FROM (VALUES ...)`
+- [x] without(columns...) for YDB `SELECT * WITHOUT ...`
+- [x] flattenBy(...), flattenListBy(...), flattenDictBy(...), flattenOptionalBy(...), flattenColumns()
+- [x] sample(ratio) and tableSample(method, size, repeatable?)
+- [x] assumeOrderBy(...) for YDB `ASSUME ORDER BY`
+- [x] matchRecognize(config | rawSql) for YDB `MATCH_RECOGNIZE`
+- [x] advanced GROUP BY helpers: rollup(...), cube(...), groupingSets(...), grouping(...), sessionWindow(...), sessionStart(), hop(...), hopStart(), hopEnd()
+- [x] vector/KNN query helpers: vectorIndexView(...), knnDistance(...), knnSimilarity(...), typed cosine/euclidean/manhattan/inner-product helpers, kMeansTreeSearchTopSize(...)
+- [x] YQL script helpers: pragma(...), declareParam(...), commit(), defineAction(...), doAction(...), doBlock(...), intoResult(...), yqlScript(...)
+- [x] standalone SELECT helpers: asTable(...), values(...), valuesTable(...), matchRecognize(...), windowDefinition(...)
 
 **Insert: src/ydb-core/query-builders/insert.ts**
 - [x] constructor(table, session)
@@ -173,6 +188,7 @@
 - [x] rejects unsupported returning()/on() methods
 
 **Delete: src/ydb-core/query-builders/delete.ts**
+
 - [x] constructor(table, session)
 - [x] where(where)
 - [x] getSQL()
@@ -252,6 +268,7 @@
 - [x] index(...)
 - [x] indexView(table, indexName, alias?)
 - [x] uniqueIndex(...)
+- [x] vectorIndex(...) / vectorKMeansTree(...)
 - [x] primaryKey(...)
 - [x] unique(...)
 
@@ -271,6 +288,21 @@
 - [x] migrate(...)
 - [x] migration table bootstrap / bookkeeping
 - [x] SQL generation for table create/alter/drop
+- [x] temporary table DDL via buildCreateTableSql(table, { temporary: true | "temp" | "temporary" })
 - [x] index / constraint DDL generation
 - [x] integration contract with drizzle-kit or explicit adapter-side migrator
 - [x] table options / partitioning / TTL / column-family DDL
+- [x] vector index DDL (`USING vector_kmeans_tree`)
+- [x] ANALYZE DDL builder
+- [x] CREATE VIEW / DROP VIEW DDL builders
+- [x] CREATE TOPIC / ALTER TOPIC / DROP TOPIC DDL builders
+- [x] ALTER TABLE RENAME TO builder
+- [x] ALTER TABLE CHANGEFEED add/drop builders
+- [x] ALTER TABLE multi-action statement builder
+- [x] CREATE/ALTER/DROP ASYNC REPLICATION DDL builders
+- [x] CREATE/ALTER/DROP TRANSFER DDL builders
+- [x] CREATE OBJECT (TYPE SECRET) DDL builder
+- [x] CREATE/ALTER/DROP USER DDL builders
+- [x] CREATE/ALTER/DROP GROUP DDL builders
+- [x] GRANT / REVOKE DDL builders
+- [x] SHOW CREATE DDL builder

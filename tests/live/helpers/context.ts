@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { after, before, type TestContext } from "node:test";
 import { eq, sql as yql } from "drizzle-orm";
 import { drizzle, YdbDriver, type YdbDrizzleDatabase } from "../../../src/index.js";
-import { keepData, liveSchema, posts, postsTableName, typesTable, typesTableName, users, usersTableName, verbose, ydbUrl } from "./schema.js";
+import { keepData, liveSchema, posts, postsTableName, requireLiveYdb, typesTable, typesTableName, users, usersTableName, verbose, ydbUrl } from "./schema.js";
 
 export interface LiveTestContext {
   readonly db: YdbDrizzleDatabase<typeof liveSchema>;
@@ -165,6 +165,9 @@ export function createLiveContext(): LiveTestContext {
       log("up", usersTableName, postsTableName, typesTableName, keepData ? "keep" : "clean");
     } catch (error) {
       liveDbUnavailableReason = error instanceof Error ? error.message : String(error);
+      if (requireLiveYdb) {
+        throw new Error(`YDB unavailable: ${liveDbUnavailableReason}`, { cause: error });
+      }
     }
   });
 

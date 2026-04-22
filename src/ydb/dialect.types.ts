@@ -11,6 +11,13 @@ import type { Subquery } from "drizzle-orm/subquery";
 import type { UpdateSet } from "drizzle-orm/utils";
 import type { YdbSelectedFieldsOrdered } from "../ydb-core/result-mapping.js";
 import type { YdbColumn } from "../ydb-core/columns/common.js";
+import type {
+  YdbFlattenConfig,
+  YdbMatchRecognizeConfig,
+  YdbSampleConfig,
+  YdbUniqueDistinctHint,
+  YdbWindowClause,
+} from "../ydb-core/query-builders/select-syntax.js";
 import type { YdbTable } from "../ydb-core/table.js";
 import type { YdbMigrationTableConfig } from "./migration-ddl.js";
 
@@ -55,10 +62,19 @@ export interface YdbSelectConfig {
   joins?: YdbJoinConfig[];
   where?: SQL;
   groupBy?: SQLWrapper[];
+  groupByCompact?: boolean;
   having?: SQL;
+  windows?: YdbWindowClause[];
   orderBy?: SQLWrapper[];
+  assumeOrderBy?: SQLWrapper[];
   limit?: number;
   offset?: number;
+  intoResult?: string;
+  without?: SQLWrapper[];
+  flatten?: YdbFlattenConfig;
+  sample?: YdbSampleConfig;
+  matchRecognize?: YdbMatchRecognizeConfig | SQLWrapper;
+  uniqueDistinctHints?: YdbUniqueDistinctHint[];
   distinct?: boolean;
   distinctOn?: SQLWrapper[];
   selectionAliases?: string[];
@@ -109,7 +125,10 @@ export interface YdbRelationalQueryConfig {
   nestedQueryRelation?: Relation;
 }
 
-export type YdbRelationalQueryResult = BuildRelationalQueryResult<YdbTable, YdbColumn>;
+export type YdbRelationalQueryResult = BuildRelationalQueryResult<
+  YdbTable,
+  YdbColumn
+>;
 
 export interface YdbDialectMigrationConfig extends YdbMigrationTableConfig {}
 

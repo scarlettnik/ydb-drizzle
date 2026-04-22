@@ -9,12 +9,6 @@ import type {
 } from "./schema.types.js";
 import { YdbDatabase } from "./db.js";
 
-/**
- * Transaction-scoped database wrapper.
- *
- * @typeParam TSchemaDefinition - Raw schema object passed to `drizzle({ schema })`.
- * @typeParam TSchemaRelations - Relational metadata extracted from `TSchemaDefinition`.
- */
 export class YdbTransaction<
   TSchemaDefinition extends YdbSchemaDefinition = YdbSchemaWithoutTables,
   TSchemaRelations extends TablesRelationalConfig = YdbSchemaRelations<TSchemaDefinition>,
