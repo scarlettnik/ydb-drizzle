@@ -1,0 +1,39 @@
+.landing-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 0.9rem;
+  margin: 1.5rem 0;
+}
+
+.landing-card {
+  border: 1px solid var(--md-default-fg-color--lightest);
+  border-radius: 8px;
+  display: block;
+  padding: 1rem;
+}
+
+.landing-card:hover {
+  border-color: var(--md-accent-fg-color);
+  text-decoration: none;
+}
+
+.landing-card h3 {
+  margin: 0 0 0.35rem;
+}
+
+.landing-card p {
+  margin: 0;
+}
+
+.quick-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  margin: 1rem 0 1.5rem;
+}
+
+.quick-links a {
+  border: 1px solid var(--md-default-fg-color--lightest);
+  border-radius: 8px;
+  padding: 0.45rem 0.7rem;
+}

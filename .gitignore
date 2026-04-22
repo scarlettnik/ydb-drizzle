@@ -8,14 +8,26 @@ pnpm-debug.log*
 lerna-debug.log*
 
 node_modules
+.env
+.env.test
+.env.*
+!.env.example
+!.env.test.example
 dist
+site
 dist-ssr
 *.local
 
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
-.idea
+.idea/*
+!.idea/dictionaries/
+!.idea/dictionaries/ydb_drizzle_adapter.xml
+!.idea/inspectionProfiles/
+!.idea/inspectionProfiles/Project_Default.xml
+!.idea/inspectionProfiles/profiles_settings.xml
+!.idea/sqldialects.xml
 .DS_Store
 *.suo
 *.ntvs*

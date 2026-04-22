@@ -1,0 +1,111 @@
+site_name: YDB Drizzle Adapter
+site_description: Formal documentation for the YDB adapter for Drizzle ORM.
+site_url: !ENV [DOCS_SITE_URL, "https://scarlettnik.github.io/ydb-drizzle/"]
+repo_name: scarlettnik/ydb-drizzle
+repo_url: https://github.com/scarlettnik/ydb-drizzle
+edit_uri: edit/main/docs/
+strict: true
+use_directory_urls: true
+
+theme:
+  name: material
+  language: ru
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - search.suggest
+    - search.highlight
+    - search.share
+    - content.action.edit
+    - content.code.copy
+    - content.code.annotate
+    - toc.follow
+  palette:
+    - scheme: default
+      primary: teal
+      accent: indigo
+      toggle:
+        icon: material/weather-night
+        name: Темная тема
+    - scheme: slate
+      primary: teal
+      accent: cyan
+      toggle:
+        icon: material/weather-sunny
+        name: Светлая тема
+  font:
+    text: Inter
+    code: JetBrains Mono
+
+plugins:
+  - search:
+      lang:
+        - ru
+        - en
+      separator: '[\s\-\.]+'
+  - minify:
+      minify_html: true
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - def_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+      title: На этой странице
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+
+extra_css:
+  - stylesheets/extra.css
+
+nav:
+  - Обзор: index.md
+  - Быстрый старт: getting-started.md
+  - Схема:
+      - Обзор: schema.md
+      - Таблицы: schema/tables.md
+      - Колонки и типы: schema/columns.md
+      - Ограничения и индексы: schema/constraints-indexes.md
+      - Настройки таблиц и TTL: schema/table-options.md
+  - API:
+      - Database API:
+          - Обзор: database-api.md
+          - Подключение: database-api/connection.md
+          - Методы YdbDatabase: database-api/methods.md
+          - Транзакции и relations: database-api/transactions-relations.md
+      - Построители запросов:
+          - Обзор: query-builders.md
+          - SELECT: query-builders/select.md
+          - Joins и объединение результатов: query-builders/joins-set-operators.md
+          - Изменение данных: query-builders/mutations.md
+          - CTE и вывод SQL: query-builders/cte-rendering.md
+      - YQL helpers:
+          - Обзор: ydb-yql-helpers.md
+          - Источники SELECT: ydb-yql-helpers/select-sources.md
+          - Аналитические функции: ydb-yql-helpers/analytical.md
+          - YQL-скрипты: ydb-yql-helpers/scripts.md
+      - Driver, Session и Dialect:
+          - Обзор: driver-session-dialect.md
+          - YdbDriver: driver-session-dialect/driver.md
+          - YdbSession и PreparedQuery: driver-session-dialect/session-prepared.md
+          - YdbDialect: driver-session-dialect/dialect.md
+      - Публичный API: api-index.md
+  - Эксплуатация:
+      - Миграции и DDL:
+          - Обзор: migrations-ddl.md
+          - Запуск миграций: migrations-ddl/migrate.md
+          - DDL таблиц: migrations-ddl/table-ddl.md
+          - DDL сервисных объектов: migrations-ddl/service-ddl.md
+          - Операции миграций: migrations-ddl/operations.md

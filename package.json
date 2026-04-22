@@ -1,24 +1,73 @@
 {
   "name": "ydb-drizzle-adapter",
   "version": "1.0.0",
-  "description": "",
+  "description": "YDB adapter for Drizzle ORM.",
   "license": "ISC",
-  "author": "",
+  "author": "scarlettnik",
   "type": "module",
-  "main": "index.js",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "docs",
+    "mkdocs.yml",
+    "requirements-docs.txt"
+  ],
+  "sideEffects": false,
+  "engines": {
+    "node": ">=20"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/scarlettnik/ydb-drizzle.git"
+  },
+  "bugs": {
+    "url": "https://github.com/scarlettnik/ydb-drizzle/issues"
+  },
+  "homepage": "https://scarlettnik.github.io/ydb-drizzle/",
+  "keywords": [
+    "drizzle",
+    "drizzle-orm",
+    "ydb",
+    "yandex-database",
+    "database",
+    "orm"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
-    "test": "node --import tsx --test tests/adapter.test.ts",
-    "test:all": "node --import tsx --test tests/*.test.ts",
-    "test:smoke": "node --import tsx tests/test-connection.ts",
-    "typecheck": "tsc --noEmit"
+    "build": "tsc -p tsconfig.build.json",
+    "audit": "npm audit --omit=dev --audit-level=high",
+    "docs:setup": "python3 -m pip install --user -r requirements-docs.txt",
+    "docs:dev": "python3 -m mkdocs serve -a 0.0.0.0:8000",
+    "docs:build": "python3 -m mkdocs build --strict",
+    "docs:preview": "python3 -m mkdocs serve -a 0.0.0.0:8000",
+    "prepack": "npm run build",
+    "prepublishOnly": "npm run verify",
+    "pack:dry-run": "npm pack --dry-run",
+    "test": "npm run test:unit",
+    "test:ci": "npm run typecheck && npm run test:unit && npm run build",
+    "test:live": "node --import tsx --test tests/live/*.test.ts",
+    "test:unit": "node --import tsx --test tests/unit/*.test.ts",
+    "test:migrations": "node --import tsx --test tests/unit/migration*.test.ts tests/live/migrations.test.ts",
+    "test:query-builders": "node --import tsx --test tests/unit/select-builder*.test.ts tests/unit/query-builder-utils.test.ts tests/unit/mutation-builders.test.ts tests/unit/builder-contract.test.ts tests/unit/relational-query.test.ts tests/live/select-features.test.ts",
+    "test:all": "node --import tsx --test tests/unit/*.test.ts tests/live/*.test.ts",
+    "test:smoke": "node --import tsx tests/live/test-connection.ts",
+    "typecheck": "tsc --noEmit",
+    "verify": "npm run audit && npm run test:ci && npm run docs:setup && npm run docs:build && npm run pack:dry-run"
   },
   "dependencies": {
-    "@yandex-cloud/nodejs-sdk": "^2.9.0",
     "@ydbjs/core": "^6.0.7",
     "@ydbjs/query": "^6.0.7",
     "@ydbjs/value": "^6.0.5",
-    "drizzle-orm": "^0.45.1",
-    "ydb-sdk": "^5.11.1"
+    "drizzle-orm": "^0.45.2"
   },
   "devDependencies": {
     "@types/node": "^25.3.0",
